@@ -1,0 +1,23 @@
+2026-01-29T22:44:43.924Z [DEBUG] High write ratio: blit=0, write=1691 (100.0% writes), screen=44x117
+2026-01-29T22:44:43.992Z [DEBUG] Writing to temp file: /home/claude/.claude.json.tmp.1.1769726683992
+2026-01-29T22:44:43.992Z [DEBUG] Preserving file permissions: 100600
+2026-01-29T22:44:43.992Z [DEBUG] Temp file written successfully, size: 3665 bytes
+2026-01-29T22:44:43.992Z [DEBUG] Applied original permissions to temp file
+2026-01-29T22:44:43.992Z [DEBUG] Renaming /home/claude/.claude.json.tmp.1.1769726683992 to /home/claude/.claude.json
+2026-01-29T22:44:43.992Z [DEBUG] File /home/claude/.claude.json written atomically
+2026-01-29T22:44:44.014Z [DEBUG] Writing to temp file: /home/claude/.claude.json.tmp.1.1769726684014
+2026-01-29T22:44:44.014Z [DEBUG] Preserving file permissions: 100600
+2026-01-29T22:44:44.014Z [DEBUG] Temp file written successfully, size: 3665 bytes
+2026-01-29T22:44:44.014Z [DEBUG] Applied original permissions to temp file
+2026-01-29T22:44:44.014Z [DEBUG] Renaming /home/claude/.claude.json.tmp.1.1769726684014 to /home/claude/.claude.json
+2026-01-29T22:44:44.014Z [DEBUG] File /home/claude/.claude.json written atomically
+2026-01-29T22:44:44.018Z [ERROR] Error: Error: ENOENT: no such file or directory, open '/home/claude/.claude/statsig/statsig.session_id.2656274335'
+    at async open (node:internal/fs/promises:634:25)
+    at async writeFile (node:internal/fs/promises:1206:14)
+2026-01-29T22:44:44.018Z [ERROR] Error: Error: ENOENT: no such file or directory, open '/home/claude/.claude/statsig/statsig.session_id.2656274335'
+    at async open (node:internal/fs/promises:634:25)
+    at async writeFile (node:internal/fs/promises:1206:14)
+2026-01-29T22:44:45.965Z [DEBUG] [REPL:unmount] REPL unmounting
+2026-01-29T22:44:45.968Z [DEBUG] Getting matching hook commands for SessionEnd with query: other
+2026-01-29T22:44:45.968Z [DEBUG] Found 0 hook matchers in settings
+2026-01-29T22:44:45.968Z [DEBUG] Matched 0 unique hooks for query "other" (0 before deduplication)

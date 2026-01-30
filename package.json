@@ -1,0 +1,32 @@
+{
+  "name": "agentaos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A web-based operating system for personal cloud computing",
+  "workspaces": [
+    "core",
+    "ui",
+    "init"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:core\" \"npm run dev:ui\"",
+    "dev:core": "npm run dev -w core",
+    "dev:ui": "npm run dev -w ui",
+    "dev:init": "npm run dev -w init",
+    "build": "npm run build -w core && npm run build -w ui && npm run build -w init",
+    "build:core": "npm run build -w core",
+    "build:ui": "npm run build -w ui",
+    "build:init": "npm run build -w init",
+    "start": "npm run start -w core",
+    "start:init": "npm run start -w init",
+    "lint": "npm run lint -w core && npm run lint -w ui",
+    "clean": "rm -rf core/dist ui/dist init/dist node_modules"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

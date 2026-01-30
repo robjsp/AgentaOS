@@ -1,0 +1,41 @@
+# AgentaOS Gateway Configuration
+# Reverse proxy for API and user apps
+
+{
+    # Global options
+    auto_https off
+    admin off
+}
+
+:80 {
+    # API routes
+    handle /api/* {
+        reverse_proxy agentaos-api:3000
+    }
+
+    # WebSocket
+    handle /ws {
+        reverse_proxy agentaos-api:3000
+    }
+
+    # User app routes (proxied to their containers)
+    # Format: /apps/{app-id}/* -> app container
+    handle /apps/* {
+        # This will be dynamically configured or use a lua/template
+        # For now, reverse proxy to API which can handle routing
+        reverse_proxy agentaos-api:3000
+    }
+
+    # Static UI files
+    handle {
+        root * /srv/ui
+        try_files {path} /index.html
+        file_server
+    }
+
+    # Logging
+    log {
+        output stdout
+        format console
+    }
+}

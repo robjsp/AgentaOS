@@ -1,0 +1,272 @@
+/**
+ * Init Socket Client
+ * 
+ * Client for communicating with the Init microkernel via Unix socket.
+ * Used by the App Manager to start/stop/manage containers.
+ */
+
+import { createConnection, Socket } from 'net';
+import { randomUUID } from 'crypto';
+import {
+  InitRequest,
+  InitResponse,
+  ContainerStartRequest,
+  ContainerStopRequest,
+  ContainerStatusRequest,
+  ContainerLogsRequest,
+  ContainerListResponse,
+  ContainerStatusResponse,
+  ContainerLogsResponse,
+  SystemHealthResponse,
+  INIT_SOCKET_PATH,
+} from '../../../shared/protocol';
+import { logger } from './logger';
+
+export class InitClient {
+  private socketPath: string;
+  private socket: Socket | null = null;
+  private pendingRequests: Map<string, {
+    resolve: (response: InitResponse) => void;
+    reject: (error: Error) => void;
+    timeout: NodeJS.Timeout;
+  }> = new Map();
+  private buffer = '';
+  private connected = false;
+  private reconnecting = false;
+
+  constructor(socketPath: string = INIT_SOCKET_PATH) {
+    this.socketPath = socketPath;
+  }
+
+  /**
+   * Connect to the Init socket
+   */
+  async connect(): Promise<void> {
+    if (this.connected) return;
+
+    return new Promise((resolve, reject) => {
+      this.socket = createConnection(this.socketPath);
+
+      this.socket.on('connect', () => {
+        this.connected = true;
+        this.reconnecting = false;
+        logger.info('Connected to Init socket');
+        resolve();
+      });
+
+      this.socket.on('data', (data: Buffer) => {
+        this.handleData(data);
+      });
+
+      this.socket.on('close', () => {
+        this.connected = false;
+        this.socket = null;
+        logger.warn('Disconnected from Init socket');
+        this.scheduleReconnect();
+      });
+
+      this.socket.on('error', (err) => {
+        if (!this.connected) {
+          reject(err);
+        } else {
+          logger.error('Init socket error:', err.message);
+        }
+      });
+    });
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnecting) return;
+    this.reconnecting = true;
+
+    setTimeout(async () => {
+      try {
+        await this.connect();
+      } catch (err) {
+        logger.error('Failed to reconnect to Init:', err);
+        this.scheduleReconnect();
+      }
+    }, 5000);
+  }
+
+  private handleData(data: Buffer): void {
+    this.buffer += data.toString();
+    const lines = this.buffer.split('\n');
+    this.buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+
+      try {
+        const response = JSON.parse(line) as InitResponse;
+        const pending = this.pendingRequests.get(response.id);
+
+        if (pending) {
+          clearTimeout(pending.timeout);
+          this.pendingRequests.delete(response.id);
+          pending.resolve(response);
+        }
+      } catch (err) {
+        logger.error('Failed to parse Init response:', err);
+      }
+    }
+  }
+
+  /**
+   * Send a request to Init and wait for response
+   */
+  private async sendRequest<T extends InitResponse>(request: Omit<InitRequest, 'id'>): Promise<T> {
+    if (!this.connected || !this.socket) {
+      await this.connect();
+    }
+
+    const id = randomUUID();
+    const fullRequest = { ...request, id } as InitRequest;
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error('Request timeout'));
+      }, 30000);
+
+      this.pendingRequests.set(id, {
+        resolve: resolve as (response: InitResponse) => void,
+        reject,
+        timeout,
+      });
+
+      this.socket!.write(JSON.stringify(fullRequest) + '\n');
+    });
+  }
+
+  /**
+   * Start a container
+   */
+  async startContainer(appId: string, appType: 'user' | 'system' = 'user'): Promise<{ containerId?: string }> {
+    const response = await this.sendRequest<InitResponse>({
+      op: 'container:start',
+      appId,
+      appType,
+    } as Omit<ContainerStartRequest, 'id'>);
+
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to start container');
+    }
+
+    return { containerId: (response as { containerId?: string }).containerId };
+  }
+
+  /**
+   * Stop a container
+   */
+  async stopContainer(appId: string): Promise<void> {
+    const response = await this.sendRequest<InitResponse>({
+      op: 'container:stop',
+      appId,
+    } as Omit<ContainerStopRequest, 'id'>);
+
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to stop container');
+    }
+  }
+
+  /**
+   * Restart a container
+   */
+  async restartContainer(appId: string): Promise<{ containerId?: string }> {
+    const response = await this.sendRequest<InitResponse>({
+      op: 'container:restart',
+      appId,
+    });
+
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to restart container');
+    }
+
+    return { containerId: (response as { containerId?: string }).containerId };
+  }
+
+  /**
+   * Get container status
+   */
+  async getContainerStatus(appId: string): Promise<ContainerStatusResponse> {
+    const response = await this.sendRequest<ContainerStatusResponse>({
+      op: 'container:status',
+      appId,
+    } as Omit<ContainerStatusRequest, 'id'>);
+
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to get container status');
+    }
+
+    return response;
+  }
+
+  /**
+   * Get container logs
+   */
+  async getContainerLogs(appId: string, tail: number = 100): Promise<string[]> {
+    const response = await this.sendRequest<ContainerLogsResponse>({
+      op: 'container:logs',
+      appId,
+      tail,
+    } as Omit<ContainerLogsRequest, 'id'>);
+
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to get container logs');
+    }
+
+    return response.logs || [];
+  }
+
+  /**
+   * List all containers
+   */
+  async listContainers(): Promise<ContainerListResponse> {
+    const response = await this.sendRequest<ContainerListResponse>({
+      op: 'container:list',
+    });
+
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to list containers');
+    }
+
+    return response;
+  }
+
+  /**
+   * Check system health
+   */
+  async checkHealth(): Promise<SystemHealthResponse> {
+    const response = await this.sendRequest<SystemHealthResponse>({
+      op: 'system:health',
+    });
+
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to check health');
+    }
+
+    return response;
+  }
+
+  /**
+   * Close the connection
+   */
+  close(): void {
+    if (this.socket) {
+      this.socket.destroy();
+      this.socket = null;
+      this.connected = false;
+    }
+  }
+}
+
+// Singleton instance
+let initClient: InitClient | null = null;
+
+export function getInitClient(): InitClient {
+  if (!initClient) {
+    initClient = new InitClient();
+  }
+  return initClient;
+}

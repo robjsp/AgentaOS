@@ -1,0 +1,13 @@
+services:
+  agentaos:
+    build: .
+    ports:
+      - "3080:80"
+    volumes:
+      - agentaos-data:/data
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+
+volumes:
+  agentaos-data:
