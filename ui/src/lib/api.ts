@@ -6,20 +6,49 @@ async function request<T>(
 ): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
   
-  const response = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-    ...options,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
+  console.log(`[API] ${options.method || 'GET'} ${url}`);
+  
+  // Only set Content-Type if there's a body
+  const headers: Record<string, string> = {};
+  if (options.headers) {
+    // Copy existing headers
+    if (options.headers instanceof Headers) {
+      options.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+    } else if (Array.isArray(options.headers)) {
+      options.headers.forEach(([key, value]) => {
+        headers[key] = value;
+      });
+    } else {
+      Object.assign(headers, options.headers);
+    }
   }
+  if (options.body) {
+    headers['Content-Type'] = 'application/json';
+  }
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
 
-  return response.json();
+    console.log(`[API] ${url} -> ${response.status}`);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Request failed' }));
+      console.error(`[API] Error:`, error);
+      throw new Error(error.error || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log(`[API] Response:`, data);
+    return data;
+  } catch (err) {
+    console.error(`[API] Fetch failed:`, err);
+    throw err;
+  }
 }
 
 // Apps API

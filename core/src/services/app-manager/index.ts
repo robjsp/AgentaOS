@@ -173,6 +173,26 @@ export class AppManager {
         }
       }
 
+      // Build container image
+      if (this.useInitSocket) {
+        logger.info(`Building container image for ${manifest.id}...`);
+        try {
+          const initClient = getInitClient();
+          await initClient.buildImage(manifest.id, 'user');
+          logger.info(`Container image built for ${manifest.id}`);
+        } catch (buildError) {
+          // Rollback: remove from database
+          db.prepare('DELETE FROM app_settings WHERE app_id = ?').run(manifest.id);
+          db.prepare('DELETE FROM app_permissions WHERE app_id = ?').run(manifest.id);
+          db.prepare('DELETE FROM apps WHERE id = ?').run(manifest.id);
+          // Remove app directory
+          if (fs.existsSync(appDir)) {
+            fs.rmSync(appDir, { recursive: true });
+          }
+          throw new Error(`Failed to build container image: ${buildError instanceof Error ? buildError.message : 'Unknown error'}`);
+        }
+      }
+
       const app = this.getApp(manifest.id)!;
       
       logger.info(`Installed app: ${manifest.name} (${manifest.id})`);
@@ -196,6 +216,18 @@ export class AppManager {
     // Stop if running
     if (app.status === 'running') {
       await this.stopApp(id);
+    }
+
+    // Remove container image
+    if (this.useInitSocket) {
+      try {
+        const initClient = getInitClient();
+        await initClient.removeImage(id);
+        logger.info(`Removed container image for ${id}`);
+      } catch (err) {
+        // Log but don't fail uninstall if image removal fails
+        logger.warn(`Failed to remove container image for ${id}:`, err);
+      }
     }
 
     // Remove from database

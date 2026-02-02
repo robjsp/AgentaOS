@@ -18,11 +18,9 @@
         reverse_proxy agentaos-api:3000
     }
 
-    # User app routes (proxied to their containers)
-    # Format: /apps/{app-id}/* -> app container
+    # User app routes - API handles dynamic routing to containers
+    # API looks up app by route, proxies to the correct container
     handle /apps/* {
-        # This will be dynamically configured or use a lua/template
-        # For now, reverse proxy to API which can handle routing
         reverse_proxy agentaos-api:3000
     }
 

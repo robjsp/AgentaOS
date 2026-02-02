@@ -18,7 +18,7 @@
 
 import { createServer, Server, Socket } from 'net';
 import { spawn, SpawnOptions } from 'child_process';
-import { existsSync, mkdirSync, unlinkSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, unlinkSync, readFileSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
 import {
   InitRequest,
@@ -29,6 +29,7 @@ import {
   isValidTailParam,
   INIT_SOCKET_PATH,
   CONTAINER_NAME_PREFIX,
+  ImageBuildResponse,
 } from '../../shared/protocol';
 
 // ============================================================
@@ -192,28 +193,27 @@ async function startContainer(appId: string, appType: 'user' | 'system'): Promis
   const securityFlags = appType === 'system' ? SYSTEM_APP_SECURITY_FLAGS : USER_APP_SECURITY_FLAGS;
   const imageName = `${CONTAINER_NAME_PREFIX}-${appId}:latest`;
   
+  // Check if app has a data directory
+  const dataDir = `${appDir}/data`;
+  const hasDataDir = existsSync(dataDir);
+  
   const args = [
     'run', '-d',
     '--name', containerName,
     ...securityFlags,
     `--network=${CONFIG.internalNetwork}`,
-    // Writable temp directories (since rootfs is read-only)
+    // Writable temp directory (since rootfs is read-only)
     '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m',
-    '--tmpfs', '/app/data:rw,noexec,nosuid,size=256m',
     // Environment
     '-e', `APP_ID=${appId}`,
     '-e', `PORT=${manifest.runtime?.port || 3000}`,
   ];
 
-  // Add app-specific data mount if it exists
-  const dataDir = `${appDir}/data`;
-  if (existsSync(dataDir)) {
+  // Add app data storage - either a real mount or tmpfs
+  if (hasDataDir) {
     args.push('-v', `${dataDir}:/app/data:rw`);
-    // Remove tmpfs for /app/data since we have a real mount
-    const tmpfsIndex = args.indexOf('--tmpfs');
-    if (tmpfsIndex !== -1 && args[tmpfsIndex + 1]?.startsWith('/app/data')) {
-      args.splice(tmpfsIndex, 2);
-    }
+  } else {
+    args.push('--tmpfs', '/app/data:rw,noexec,nosuid,size=256m');
   }
 
   // Special handling for App Manager - mount Init socket
@@ -297,6 +297,110 @@ async function listContainers(): Promise<InitResponse> {
 }
 
 // ============================================================
+// IMAGE MANAGEMENT
+// ============================================================
+
+function generateDefaultDockerfile(manifest: {
+  runtime?: { image?: string; command?: string[]; port?: number };
+}): string {
+  const baseImage = manifest.runtime?.image || 'node:20-slim';
+  const command = manifest.runtime?.command || ['node', 'index.js'];
+  const port = manifest.runtime?.port || 3000;
+
+  return `# Auto-generated Dockerfile for AgentaOS app
+FROM ${baseImage}
+
+WORKDIR /app
+
+# Copy app files
+COPY . .
+
+# Install dependencies if package.json exists
+RUN if [ -f package.json ]; then npm install --omit=dev; fi
+
+# Expose the app port
+EXPOSE ${port}
+
+# Run the app
+CMD ${JSON.stringify(command)}
+`;
+}
+
+async function buildImage(appId: string, appType: 'user' | 'system'): Promise<ImageBuildResponse> {
+  const appDir = appType === 'system'
+    ? `${CONFIG.systemAppsDir}/${appId}`
+    : `${CONFIG.appsDir}/${appId}`;
+
+  if (!existsSync(appDir)) {
+    return { id: '', success: false, error: 'App directory not found' };
+  }
+
+  // Read app manifest
+  const manifestPath = `${appDir}/app.json`;
+  if (!existsSync(manifestPath)) {
+    return { id: '', success: false, error: 'App manifest not found' };
+  }
+
+  let manifest: { runtime?: { image?: string; command?: string[]; port?: number } };
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+  } catch {
+    return { id: '', success: false, error: 'Invalid app manifest' };
+  }
+
+  // Check if Dockerfile exists, generate default if not
+  const dockerfilePath = `${appDir}/Dockerfile`;
+  let generatedDockerfile = false;
+  
+  if (!existsSync(dockerfilePath)) {
+    log('info', `No Dockerfile found for ${appId}, generating default`);
+    const dockerfile = generateDefaultDockerfile(manifest);
+    writeFileSync(dockerfilePath, dockerfile);
+    generatedDockerfile = true;
+  }
+
+  const imageName = `${CONTAINER_NAME_PREFIX}-${appId}:latest`;
+
+  log('info', `Building image: ${imageName}`);
+  const result = await execPodman([
+    'build',
+    '-t', imageName,
+    '-f', dockerfilePath,
+    appDir,
+  ]);
+
+  // Clean up generated Dockerfile
+  if (generatedDockerfile) {
+    try {
+      unlinkSync(dockerfilePath);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+
+  if (result.code !== 0) {
+    log('error', `Failed to build image: ${result.stderr}`);
+    return { id: '', success: false, error: result.stderr };
+  }
+
+  log('info', `Successfully built image: ${imageName}`);
+  return { id: '', success: true, imageName, imageId: result.stdout.trim() };
+}
+
+async function removeImage(appId: string): Promise<InitResponse> {
+  const imageName = `${CONTAINER_NAME_PREFIX}-${appId}:latest`;
+
+  log('info', `Removing image: ${imageName}`);
+  const result = await execPodman(['rmi', '-f', imageName]);
+
+  if (result.code !== 0 && !result.stderr.includes('no such image')) {
+    return { id: '', success: false, error: result.stderr };
+  }
+
+  return { id: '', success: true };
+}
+
+// ============================================================
 // REQUEST HANDLING
 // ============================================================
 
@@ -366,6 +470,17 @@ async function handleRequest(request: InitRequest): Promise<InitResponse> {
     case 'container:logs': {
       const tail = ('tail' in request && isValidTailParam(request.tail)) ? request.tail : 100;
       const result = await getContainerLogs(appId, tail);
+      return { ...result, id };
+    }
+
+    case 'image:build': {
+      const appType = ('appType' in request && request.appType === 'system') ? 'system' : 'user';
+      const result = await buildImage(appId, appType);
+      return { ...result, id };
+    }
+
+    case 'image:remove': {
+      const result = await removeImage(appId);
       return { ...result, id };
     }
 

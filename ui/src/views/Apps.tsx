@@ -121,30 +121,64 @@ export function Apps() {
 
 function AppCard({ app }: { app: App }) {
   const [showMenu, setShowMenu] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
+
+  const handleError = (err: Error) => {
+    console.error(`App ${app.id} action failed:`, err);
+    setError(err.message);
+    // Clear error after 5 seconds
+    setTimeout(() => setError(null), 5000);
+  };
 
   const startMutation = useMutation({
     mutationFn: () => appsApi.start(app.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['apps'] }),
+    onSuccess: () => {
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ['apps'] });
+    },
+    onError: handleError,
   });
 
   const stopMutation = useMutation({
     mutationFn: () => appsApi.stop(app.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['apps'] }),
+    onSuccess: () => {
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ['apps'] });
+    },
+    onError: handleError,
   });
 
   const restartMutation = useMutation({
     mutationFn: () => appsApi.restart(app.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['apps'] }),
+    onSuccess: () => {
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ['apps'] });
+    },
+    onError: handleError,
   });
 
   const uninstallMutation = useMutation({
     mutationFn: () => appsApi.uninstall(app.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['apps'] }),
+    onSuccess: () => {
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ['apps'] });
+    },
+    onError: handleError,
   });
 
   const isRunning = app.status === 'running';
   const isLoading = startMutation.isPending || stopMutation.isPending || restartMutation.isPending;
+
+  const handleStartStop = () => {
+    if (isRunning) {
+      console.log(`Stopping app: ${app.id}`);
+      stopMutation.mutate();
+    } else {
+      console.log(`Starting app: ${app.id}`);
+      startMutation.mutate();
+    }
+  };
 
   return (
     <div className="card p-4">
@@ -176,7 +210,7 @@ function AppCard({ app }: { app: App }) {
               <div className="absolute right-0 top-full mt-1 w-40 bg-surface-800 border border-surface-700 rounded-lg shadow-xl z-20 py-1">
                 {app.route && isRunning && (
                   <a
-                    href={app.route}
+                    href={`/apps${app.route}/`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-surface-700 transition-colors"
@@ -214,6 +248,13 @@ function AppCard({ app }: { app: App }) {
         </div>
       </div>
 
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-md p-2 mb-3 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-300">{error}</p>
+        </div>
+      )}
+
       {app.description && (
         <p className="text-sm text-surface-400 mb-3 line-clamp-2">
           {app.description}
@@ -233,7 +274,7 @@ function AppCard({ app }: { app: App }) {
         </div>
 
         <button
-          onClick={() => isRunning ? stopMutation.mutate() : startMutation.mutate()}
+          onClick={handleStartStop}
           disabled={isLoading || app.status === 'starting'}
           className={cn(
             "btn btn-sm",

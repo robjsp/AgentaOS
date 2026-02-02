@@ -18,6 +18,9 @@ import {
   ContainerStatusResponse,
   ContainerLogsResponse,
   SystemHealthResponse,
+  ImageBuildRequest,
+  ImageRemoveRequest,
+  ImageBuildResponse,
   INIT_SOCKET_PATH,
 } from '../../../shared/protocol';
 import { logger } from './logger';
@@ -247,6 +250,37 @@ export class InitClient {
     }
 
     return response;
+  }
+
+  /**
+   * Build a container image for an app
+   */
+  async buildImage(appId: string, appType: 'user' | 'system' = 'user'): Promise<{ imageName?: string; imageId?: string }> {
+    const response = await this.sendRequest<ImageBuildResponse>({
+      op: 'image:build',
+      appId,
+      appType,
+    } as Omit<ImageBuildRequest, 'id'>);
+
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to build image');
+    }
+
+    return { imageName: response.imageName, imageId: response.imageId };
+  }
+
+  /**
+   * Remove a container image
+   */
+  async removeImage(appId: string): Promise<void> {
+    const response = await this.sendRequest<InitResponse>({
+      op: 'image:remove',
+      appId,
+    } as Omit<ImageRemoveRequest, 'id'>);
+
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to remove image');
+    }
   }
 
   /**

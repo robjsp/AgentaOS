@@ -11,6 +11,7 @@ import { logger } from '../lib/logger';
 import { appsRoutes } from './routes/apps';
 import { documentsRoutes } from './routes/documents';
 import { systemRoutes } from './routes/system';
+import { appProxyRoutes } from './routes/app-proxy';
 import { websocketHandler } from './websocket';
 
 export async function createServer(): Promise<FastifyInstance> {
@@ -35,6 +36,9 @@ export async function createServer(): Promise<FastifyInstance> {
   await server.register(appsRoutes, { prefix: '/api/apps' });
   await server.register(documentsRoutes, { prefix: '/api/documents' });
   await server.register(systemRoutes, { prefix: '/api/system' });
+  
+  // User app proxy routes
+  await server.register(appProxyRoutes, { prefix: '/apps' });
 
   // WebSocket endpoint
   server.register(async function (fastify) {

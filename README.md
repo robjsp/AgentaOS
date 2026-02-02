@@ -14,6 +14,92 @@ AgentaOS bridges the gap between simple cloud storage services (like Google Driv
 - **WebSocket Updates**: Real-time status updates without page refreshes
 - **Container Isolation**: Apps run in isolated Podman containers (user space)
 
+## Architecture: Microkernel with Podman
+
+AgentaOS uses a **microkernel architecture** for security. The only code running directly on the host is a minimal Init process (~200 lines) with zero network exposure.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                           HOST / VM                              │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │                    INIT (microkernel)                       │ │
+│  │  • No network exposure                                      │ │
+│  │  • No untrusted input parsing                               │ │
+│  │  • Minimal code (~200 lines)                                │ │
+│  │  • Only manages container lifecycle via Unix socket         │ │
+│  └──────────────────────────┬─────────────────────────────────┘ │
+│                             │ Podman                             │
+│                             ▼                                    │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │                   PODMAN CONTAINERS                         │ │
+│  │                                                             │ │
+│  │  SYSTEM SERVICES                    USER APPS               │ │
+│  │  ┌─────────┐ ┌─────────┐           ┌─────────┐             │ │
+│  │  │ Gateway │ │   API   │           │  App 1  │             │ │
+│  │  │ (Caddy) │ │(Fastify)│           │(sandbox)│             │ │
+│  │  └────┬────┘ └────┬────┘           └─────────┘             │ │
+│  │       └─────┬─────┘                                         │ │
+│  │             │                                               │ │
+│  │       Internal Network (agentaos-internal)                  │ │
+│  └────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Why Podman?
+
+| Feature | Benefit |
+|---------|---------|
+| **Rootless** | Containers run without root privileges. Even container escape = unprivileged user |
+| **Daemonless** | No background daemon. Containers are direct child processes |
+| **No socket** | No Docker socket to mount, eliminating a major attack vector |
+| **OCI-compatible** | Uses standard Docker images |
+
+### Security Model
+
+**Init (Microkernel)**
+- Runs on host with full access
+- Zero attack surface (no network, no input parsing)
+- Communicates via Unix socket only
+- Enforces container security policies
+
+**System Services (Gateway, API)**
+- Run in Podman containers
+- Trusted code, normal privileges
+- Web-facing but isolated from host
+
+**User Apps**
+- Fully sandboxed with strict restrictions:
+  - `--cap-drop=ALL` (no Linux capabilities)
+  - `--read-only` (read-only root filesystem)
+  - `--security-opt=no-new-privileges`
+  - Memory/CPU limits
+  - Network isolation by default
+
+### Running with Vagrant (Development)
+
+```bash
+# Start the VM
+vagrant up
+
+# SSH into the VM
+vagrant ssh
+
+# Inside the VM:
+cd /vagrant
+
+# Build everything
+npm run build
+
+# Build container images
+./scripts/build-containers.sh
+
+# Start AgentaOS
+./scripts/start-agentaos.sh
+```
+
+Access AgentaOS at http://localhost:8888
+
 ## Development
 
 ### Prerequisites
@@ -46,61 +132,48 @@ npm run build
 
 ```
 agentaos/
-├── core/                 # Backend (Fastify + TypeScript)
-│   ├── src/
-│   │   ├── server/       # HTTP server and routes
-│   │   ├── services/     # Business logic (app-manager, file-manager)
-│   │   └── lib/          # Utilities (database, logger, events)
-│   └── package.json
+├── init/                 # Microkernel (runs on host)
+│   └── src/index.ts      # ~200 lines, manages containers via Unix socket
+│
+├── core/                 # API Server (runs in container)
+│   └── src/
+│       ├── server/       # HTTP server and routes
+│       ├── services/     # Business logic (app-manager, file-manager)
+│       └── lib/          # Utilities (database, logger, init-client)
 │
 ├── ui/                   # Frontend (React + Vite + TypeScript)
-│   ├── src/
-│   │   ├── views/        # Page components
-│   │   ├── components/   # Shared components
-│   │   ├── hooks/        # React hooks
-│   │   ├── stores/       # Zustand stores
-│   │   └── lib/          # Utilities and API client
-│   └── package.json
+│   └── src/
+│       ├── views/        # Page components
+│       ├── components/   # Shared components
+│       ├── hooks/        # React hooks (WebSocket, etc.)
+│       └── lib/          # Utilities and API client
 │
-├── Dockerfile            # Production container image
-├── docker-compose.yml    # Docker Compose for deployment
-└── ARCHITECTURE.md       # Detailed architecture documentation
+├── containers/           # Container definitions
+│   ├── api/Dockerfile    # API server container
+│   └── gateway/          # Caddy reverse proxy + UI
+│
+├── shared/               # Shared types between init and core
+│   └── protocol.ts       # Init socket protocol definitions
+│
+├── scripts/              # Helper scripts
+│   ├── build-containers.sh
+│   └── start-agentaos.sh
+│
+├── docs/                 # Documentation
+└── Vagrantfile           # Development VM with Podman
 ```
 
-## Docker
+## Production Deployment
 
-### Build the image
+> **Note:** Production deployment is still in development. The microkernel architecture requires a host with Podman installed.
 
-```bash
-docker build -t agentaos .
-```
+For development, use the Vagrant VM which has Podman pre-configured. See "Running with Vagrant" above.
 
-### Run with Docker
+## Documentation
 
-```bash
-docker run -d \
-  -p 8080:80 \
-  -v agentaos-data:/data \
-  --name agentaos \
-  agentaos
-```
-
-### Run with Docker Compose
-
-```bash
-docker compose up -d
-```
-
-Access AgentaOS at http://localhost:8080
-
-## Architecture
-
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed documentation on:
-
-- Kernel space vs. user space
-- App model and permissions
-- WebSocket communication
-- Security considerations
+- [ARCHITECTURE.md](./docs/ARCHITECTURE.md) - Full architecture documentation
+- [MICROKERNEL_ARCHITECTURE.md](./docs/MICROKERNEL_ARCHITECTURE.md) - Security model deep-dive
+- [APP_DEVELOPMENT.md](./docs/APP_DEVELOPMENT.md) - How to build apps for AgentaOS
 
 ## App Development
 

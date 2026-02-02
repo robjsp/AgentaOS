@@ -39,3 +39,6 @@ coverage/
 
 # Podman/Docker
 *.tar
+
+# App archives
+sample-apps/**/*.zip

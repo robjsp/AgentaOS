@@ -17,6 +17,8 @@ export type InitOperation =
   | 'container:status'
   | 'container:logs'
   | 'container:list'
+  | 'image:build'
+  | 'image:remove'
   | 'system:health';
 
 // ============================================================
@@ -63,6 +65,17 @@ export interface SystemHealthRequest extends InitRequestBase {
   op: 'system:health';
 }
 
+export interface ImageBuildRequest extends InitRequestBase {
+  op: 'image:build';
+  appId: string;
+  appType: 'user' | 'system';
+}
+
+export interface ImageRemoveRequest extends InitRequestBase {
+  op: 'image:remove';
+  appId: string;
+}
+
 export type InitRequest =
   | ContainerStartRequest
   | ContainerStopRequest
@@ -70,6 +83,8 @@ export type InitRequest =
   | ContainerStatusRequest
   | ContainerLogsRequest
   | ContainerListRequest
+  | ImageBuildRequest
+  | ImageRemoveRequest
   | SystemHealthRequest;
 
 // ============================================================
@@ -120,6 +135,13 @@ export interface SystemHealthResponse extends InitResponseBase {
   podmanAvailable?: boolean;
 }
 
+export interface ImageBuildResponse extends InitResponseBase {
+  imageId?: string;
+  imageName?: string;
+}
+
+export interface ImageRemoveResponse extends InitResponseBase {}
+
 export type InitResponse =
   | ContainerStartResponse
   | ContainerStopResponse
@@ -127,6 +149,8 @@ export type InitResponse =
   | ContainerStatusResponse
   | ContainerLogsResponse
   | ContainerListResponse
+  | ImageBuildResponse
+  | ImageRemoveResponse
   | SystemHealthResponse;
 
 // ============================================================
@@ -152,6 +176,8 @@ export function isValidOperation(op: string): op is InitOperation {
     'container:status',
     'container:logs',
     'container:list',
+    'image:build',
+    'image:remove',
     'system:health',
   ];
   return allowed.includes(op as InitOperation);
