@@ -71,6 +71,25 @@ export async function initDatabase(): Promise<void> {
       FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE CASCADE
     );
     
+    -- Port allocations table
+    CREATE TABLE IF NOT EXISTS port_allocations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      app_id TEXT NOT NULL,
+      container_port INTEGER NOT NULL,
+      host_port INTEGER NOT NULL,
+      protocol TEXT NOT NULL CHECK(protocol IN ('tcp', 'udp')),
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE CASCADE,
+      UNIQUE(host_port, protocol),
+      UNIQUE(app_id, container_port, protocol)
+    );
+    
+    -- Index for quick lookups
+    CREATE INDEX IF NOT EXISTS idx_port_allocations_app_id ON port_allocations(app_id);
+    CREATE INDEX IF NOT EXISTS idx_port_allocations_host_port ON port_allocations(host_port, protocol);
+    
     -- System config table
     CREATE TABLE IF NOT EXISTS system_config (
       key TEXT PRIMARY KEY,

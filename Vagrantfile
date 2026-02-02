@@ -13,6 +13,12 @@ Vagrant.configure("2") do |config|
   config.vm.network "forwarded_port", guest: 8080, host: 8888
   # API container binds to 3000 (for direct access during dev)
   config.vm.network "forwarded_port", guest: 3000, host: 3033
+  
+  # Direct port mapping range for apps (10000-10099)
+  # Apps can expose TCP/UDP ports directly, bypassing HTTP proxy
+  (10000..10099).each do |port|
+    config.vm.network "forwarded_port", guest: port, host: port, auto_correct: true
+  end
 
   # Sync the project directory
   config.vm.synced_folder ".", "/vagrant", type: "virtualbox"

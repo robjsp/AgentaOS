@@ -1,5 +1,7 @@
 # Port Mapping Feature Implementation Plan
 
+> **STATUS: IMPLEMENTED** ✓
+
 > Direct TCP/UDP port mapping for non-HTTP services (game servers, databases, SSH, etc.)
 
 ## Overview

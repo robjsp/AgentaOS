@@ -28,6 +28,10 @@ export const Events = {
   APP_ERROR: 'app:error',
   APP_LOG: 'app:log',
   
+  // Port events
+  PORT_ENABLED: 'port:enabled',
+  PORT_DISABLED: 'port:disabled',
+  
   // System events
   SYSTEM_INFO: 'system:info',
   SYSTEM_ERROR: 'system:error',

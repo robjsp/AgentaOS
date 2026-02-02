@@ -8,5 +8,8 @@
     "command": ["node", "server.js"],
     "port": 3000
   },
-  "route": "/hello"
+  "route": "/hello",
+  "ports": [
+    { "container": 3000, "protocol": "tcp" }
+  ]
 }

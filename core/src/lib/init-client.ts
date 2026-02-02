@@ -21,6 +21,7 @@ import {
   ImageBuildRequest,
   ImageRemoveRequest,
   ImageBuildResponse,
+  PortMapping,
   INIT_SOCKET_PATH,
 } from '../../../shared/protocol';
 import { logger } from './logger';
@@ -145,11 +146,16 @@ export class InitClient {
   /**
    * Start a container
    */
-  async startContainer(appId: string, appType: 'user' | 'system' = 'user'): Promise<{ containerId?: string }> {
+  async startContainer(
+    appId: string, 
+    appType: 'user' | 'system' = 'user',
+    portMappings?: PortMapping[]
+  ): Promise<{ containerId?: string }> {
     const response = await this.sendRequest<InitResponse>({
       op: 'container:start',
       appId,
       appType,
+      portMappings,
     } as Omit<ContainerStartRequest, 'id'>);
 
     if (!response.success) {
@@ -176,10 +182,14 @@ export class InitClient {
   /**
    * Restart a container
    */
-  async restartContainer(appId: string): Promise<{ containerId?: string }> {
+  async restartContainer(
+    appId: string,
+    portMappings?: PortMapping[]
+  ): Promise<{ containerId?: string }> {
     const response = await this.sendRequest<InitResponse>({
       op: 'container:restart',
       appId,
+      portMappings,
     });
 
     if (!response.success) {

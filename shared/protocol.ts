@@ -22,6 +22,23 @@ export type InitOperation =
   | 'system:health';
 
 // ============================================================
+// PORT MAPPING TYPES
+// ============================================================
+
+export interface PortMapping {
+  containerPort: number;  // Port inside container (e.g., 25565)
+  hostPort: number;       // Port on host (e.g., 10001)
+  protocol: 'tcp' | 'udp';
+  enabled: boolean;
+}
+
+// Port allocation range for user apps
+export const PORT_RANGE = {
+  min: 10000,
+  max: 20000,
+};
+
+// ============================================================
 // REQUEST TYPES
 // ============================================================
 
@@ -34,6 +51,7 @@ export interface ContainerStartRequest extends InitRequestBase {
   op: 'container:start';
   appId: string;
   appType: 'user' | 'system';
+  portMappings?: PortMapping[];  // Optional port mappings
 }
 
 export interface ContainerStopRequest extends InitRequestBase {
@@ -188,6 +206,42 @@ export function isValidOperation(op: string): op is InitOperation {
  */
 export function isValidTailParam(tail: unknown): tail is number {
   return typeof tail === 'number' && tail > 0 && tail <= 10000 && Number.isInteger(tail);
+}
+
+/**
+ * Validate port number
+ */
+export function isValidPort(port: unknown): port is number {
+  return typeof port === 'number' && port >= 1 && port <= 65535 && Number.isInteger(port);
+}
+
+/**
+ * Validate host port is within allowed range
+ */
+export function isValidHostPort(port: number): boolean {
+  return port >= PORT_RANGE.min && port <= PORT_RANGE.max;
+}
+
+/**
+ * Validate protocol
+ */
+export function isValidProtocol(protocol: unknown): protocol is 'tcp' | 'udp' {
+  return protocol === 'tcp' || protocol === 'udp';
+}
+
+/**
+ * Validate a port mapping object
+ */
+export function isValidPortMapping(mapping: unknown): mapping is PortMapping {
+  if (typeof mapping !== 'object' || mapping === null) return false;
+  const m = mapping as Record<string, unknown>;
+  return (
+    isValidPort(m.containerPort) &&
+    isValidPort(m.hostPort) &&
+    isValidHostPort(m.hostPort as number) &&
+    isValidProtocol(m.protocol) &&
+    typeof m.enabled === 'boolean'
+  );
 }
 
 // ============================================================

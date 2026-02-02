@@ -29,7 +29,7 @@ export function useWebSocket() {
       // Subscribe to all events
       ws.send(JSON.stringify({
         type: 'subscribe',
-        channels: ['app', 'system', 'file'],
+        channels: ['app', 'system', 'file', 'port'],
       }));
     };
 
@@ -70,6 +70,16 @@ export function useWebSocket() {
         // Invalidate apps query to refetch
         queryClient.invalidateQueries({ queryKey: ['apps'] });
         break;
+        
+      case 'port:enabled':
+      case 'port:disabled': {
+        // Invalidate port queries for the specific app
+        const data = message.data as { appId?: string } | undefined;
+        if (data?.appId) {
+          queryClient.invalidateQueries({ queryKey: ['app-ports', data.appId] });
+        }
+        break;
+      }
         
       case 'file:created':
       case 'file:deleted':

@@ -156,6 +156,54 @@ By default, apps can only communicate within the AgentaOS internal network (to r
 
 ---
 
+## Direct Port Mapping
+
+For non-HTTP services (game servers, databases, SSH, etc.), you can expose ports directly to the host.
+
+```json
+{
+  "ports": [
+    { "container": 25565, "protocol": "tcp" },
+    { "container": 25565, "protocol": "udp" }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `container` | number | Port the app listens on inside the container |
+| `protocol` | string | `"tcp"` or `"udp"` |
+| `host` | number | (Optional) Specific host port. Auto-assigned from 10000-20000 if not specified |
+
+**How it works:**
+1. When you install the app, host ports are automatically allocated (e.g., 10001)
+2. External clients connect directly to `your-server:10001`
+3. Traffic is forwarded to container port 25565
+4. You can toggle ports on/off via the UI (requires app restart)
+
+**Example: Minecraft Server**
+
+```json
+{
+  "id": "minecraft",
+  "name": "Minecraft Server",
+  "version": "1.0.0",
+  "runtime": {
+    "image": "itzg/minecraft-server",
+    "port": 25565
+  },
+  "ports": [
+    { "container": 25565, "protocol": "tcp" }
+  ]
+}
+```
+
+Players connect to `your-server:10001` (or whatever port was assigned).
+
+**Security Note:** Direct port access bypasses AgentaOS authentication. Your app must handle its own security.
+
+---
+
 ## User Settings
 
 Define settings that users can configure through the UI.

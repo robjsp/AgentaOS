@@ -8,6 +8,13 @@ import { config } from '../../lib/config';
 import { logger } from '../../lib/logger';
 import { emitEvent, Events } from '../../lib/events';
 import { getInitClient } from '../../lib/init-client';
+import { getPortAllocator, PortAllocation } from '../port-allocator';
+
+export interface ManifestPort {
+  container: number;
+  protocol: 'tcp' | 'udp';
+  host?: number;  // Optional: auto-assigned if not specified
+}
 
 export interface AppManifest {
   id: string;
@@ -23,6 +30,7 @@ export interface AppManifest {
     healthCheck?: string;
   };
   route?: string;
+  ports?: ManifestPort[];  // Direct port mappings
   permissions?: {
     documents?: {
       access: 'none' | 'read' | 'readwrite';
@@ -173,6 +181,31 @@ export class AppManager {
         }
       }
 
+      // Allocate ports if requested in manifest
+      if (manifest.ports && manifest.ports.length > 0) {
+        const portAllocator = getPortAllocator();
+        const portRequests = manifest.ports.map(p => ({
+          containerPort: p.container,
+          protocol: p.protocol,
+          hostPort: p.host,
+        }));
+        
+        try {
+          const allocations = portAllocator.allocatePortsForApp(manifest.id, portRequests);
+          logger.info(`Allocated ${allocations.length} ports for ${manifest.id}`);
+        } catch (portError) {
+          // Rollback: remove from database
+          db.prepare('DELETE FROM app_settings WHERE app_id = ?').run(manifest.id);
+          db.prepare('DELETE FROM app_permissions WHERE app_id = ?').run(manifest.id);
+          db.prepare('DELETE FROM apps WHERE id = ?').run(manifest.id);
+          // Remove app directory
+          if (fs.existsSync(appDir)) {
+            fs.rmSync(appDir, { recursive: true });
+          }
+          throw new Error(`Failed to allocate ports: ${portError instanceof Error ? portError.message : 'Unknown error'}`);
+        }
+      }
+
       // Build container image
       if (this.useInitSocket) {
         logger.info(`Building container image for ${manifest.id}...`);
@@ -181,7 +214,9 @@ export class AppManager {
           await initClient.buildImage(manifest.id, 'user');
           logger.info(`Container image built for ${manifest.id}`);
         } catch (buildError) {
-          // Rollback: remove from database
+          // Rollback: remove ports and database entries
+          const portAllocator = getPortAllocator();
+          portAllocator.releasePortsForApp(manifest.id);
           db.prepare('DELETE FROM app_settings WHERE app_id = ?').run(manifest.id);
           db.prepare('DELETE FROM app_permissions WHERE app_id = ?').run(manifest.id);
           db.prepare('DELETE FROM apps WHERE id = ?').run(manifest.id);
@@ -230,6 +265,10 @@ export class AppManager {
       }
     }
 
+    // Release allocated ports
+    const portAllocator = getPortAllocator();
+    portAllocator.releasePortsForApp(id);
+
     // Remove from database
     const db = getDb();
     db.prepare('DELETE FROM app_settings WHERE app_id = ?').run(id);
@@ -265,7 +304,12 @@ export class AppManager {
       if (this.useInitSocket) {
         // Microkernel mode: Use Init socket to start container
         const initClient = getInitClient();
-        const result = await initClient.startContainer(id, 'user');
+        
+        // Get enabled port mappings for this app
+        const portAllocator = getPortAllocator();
+        const portMappings = portAllocator.getEnabledPortMappings(id);
+        
+        const result = await initClient.startContainer(id, 'user', portMappings);
         
         db.prepare('UPDATE apps SET status = ?, container_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
           .run('running', result.containerId || null, id);
@@ -411,5 +455,40 @@ export class AppManager {
     }
     
     return settings;
+  }
+
+  /**
+   * Get all port allocations for an app
+   */
+  getAppPorts(id: string): PortAllocation[] {
+    const app = this.getApp(id);
+    if (!app) {
+      throw new Error(`App ${id} not found`);
+    }
+
+    const portAllocator = getPortAllocator();
+    return portAllocator.getPortsForApp(id);
+  }
+
+  /**
+   * Toggle a port mapping on/off
+   * Note: Requires app restart to take effect
+   */
+  toggleAppPort(id: string, containerPort: number, protocol: 'tcp' | 'udp', enabled: boolean): PortAllocation {
+    const app = this.getApp(id);
+    if (!app) {
+      throw new Error(`App ${id} not found`);
+    }
+
+    const portAllocator = getPortAllocator();
+    const allocation = portAllocator.togglePort(id, containerPort, protocol, enabled);
+
+    // Emit event for WebSocket notification
+    emitEvent(enabled ? Events.PORT_ENABLED : Events.PORT_DISABLED, {
+      appId: id,
+      port: allocation,
+    });
+
+    return allocation;
   }
 }

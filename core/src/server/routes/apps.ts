@@ -119,4 +119,57 @@ export async function appsRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
   });
+
+  // Get app ports
+  fastify.get('/:id/ports', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    try {
+      const ports = appManager.getAppPorts(request.params.id);
+      return { ports };
+    } catch (error) {
+      logger.error('Failed to get app ports:', error);
+      if ((error as Error).message.includes('not found')) {
+        return reply.status(404).send({ error: 'App not found' });
+      }
+      return reply.status(500).send({ 
+        error: error instanceof Error ? error.message : 'Failed to get ports' 
+      });
+    }
+  });
+
+  // Toggle app port
+  fastify.put('/:id/ports/:containerPort', async (
+    request: FastifyRequest<{ 
+      Params: { id: string; containerPort: string }; 
+      Body: { protocol: 'tcp' | 'udp'; enabled: boolean } 
+    }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const containerPort = parseInt(request.params.containerPort, 10);
+      if (isNaN(containerPort)) {
+        return reply.status(400).send({ error: 'Invalid container port' });
+      }
+
+      const { protocol, enabled } = request.body;
+      if (!protocol || typeof enabled !== 'boolean') {
+        return reply.status(400).send({ error: 'protocol and enabled are required' });
+      }
+
+      const app = appManager.getApp(request.params.id);
+      const port = appManager.toggleAppPort(request.params.id, containerPort, protocol, enabled);
+      
+      return { 
+        port,
+        restartRequired: app?.status === 'running',
+      };
+    } catch (error) {
+      logger.error('Failed to toggle app port:', error);
+      if ((error as Error).message.includes('not found')) {
+        return reply.status(404).send({ error: 'App or port not found' });
+      }
+      return reply.status(500).send({ 
+        error: error instanceof Error ? error.message : 'Failed to toggle port' 
+      });
+    }
+  });
 }

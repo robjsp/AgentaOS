@@ -66,6 +66,17 @@ export interface App {
   updated_at: string;
 }
 
+export interface PortAllocation {
+  id: number;
+  appId: string;
+  containerPort: number;
+  hostPort: number;
+  protocol: 'tcp' | 'udp';
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const appsApi = {
   list: () => request<{ apps: App[] }>('/apps'),
   
@@ -97,6 +108,15 @@ export const appsApi = {
   restart: (id: string) => request<{ app: App }>(`/apps/${id}/restart`, { method: 'POST' }),
   
   logs: (id: string) => request<{ logs: string[] }>(`/apps/${id}/logs`),
+  
+  // Port management
+  getPorts: (id: string) => request<{ ports: PortAllocation[] }>(`/apps/${id}/ports`),
+  
+  togglePort: (id: string, containerPort: number, protocol: 'tcp' | 'udp', enabled: boolean) =>
+    request<{ port: PortAllocation; restartRequired: boolean }>(`/apps/${id}/ports/${containerPort}`, {
+      method: 'PUT',
+      body: JSON.stringify({ protocol, enabled }),
+    }),
 };
 
 // Documents API

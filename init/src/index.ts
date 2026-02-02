@@ -153,7 +153,18 @@ async function getContainerStatus(appId: string): Promise<ContainerStatus> {
   return 'error';
 }
 
-async function startContainer(appId: string, appType: 'user' | 'system'): Promise<InitResponse> {
+interface PortMappingParam {
+  containerPort: number;
+  hostPort: number;
+  protocol: 'tcp' | 'udp';
+  enabled: boolean;
+}
+
+async function startContainer(
+  appId: string, 
+  appType: 'user' | 'system',
+  portMappings?: PortMappingParam[]
+): Promise<InitResponse> {
   const containerName = getContainerName(appId);
   
   // Check if already running
@@ -208,6 +219,17 @@ async function startContainer(appId: string, appType: 'user' | 'system'): Promis
     '-e', `APP_ID=${appId}`,
     '-e', `PORT=${manifest.runtime?.port || 3000}`,
   ];
+
+  // Add port mappings if provided
+  if (portMappings && portMappings.length > 0) {
+    for (const mapping of portMappings) {
+      if (mapping.enabled) {
+        // Format: -p hostPort:containerPort/protocol
+        args.push('-p', `${mapping.hostPort}:${mapping.containerPort}/${mapping.protocol}`);
+        log('info', `Mapping port ${mapping.hostPort}:${mapping.containerPort}/${mapping.protocol}`);
+      }
+    }
+  }
 
   // Add app data storage - either a real mount or tmpfs
   if (hasDataDir) {
@@ -446,7 +468,11 @@ async function handleRequest(request: InitRequest): Promise<InitResponse> {
   switch (op) {
     case 'container:start': {
       const appType = ('appType' in request && request.appType === 'system') ? 'system' : 'user';
-      const result = await startContainer(appId, appType);
+      // Extract port mappings if provided
+      const portMappings = ('portMappings' in request && Array.isArray(request.portMappings))
+        ? request.portMappings as PortMappingParam[]
+        : undefined;
+      const result = await startContainer(appId, appType, portMappings);
       return { ...result, id };
     }
 
@@ -457,8 +483,12 @@ async function handleRequest(request: InitRequest): Promise<InitResponse> {
 
     case 'container:restart': {
       await stopContainer(appId);
-      const appType = 'user';  // TODO: Track app type
-      const result = await startContainer(appId, appType);
+      const appType = ('appType' in request && request.appType === 'system') ? 'system' : 'user';
+      // Extract port mappings if provided
+      const portMappings = ('portMappings' in request && Array.isArray(request.portMappings))
+        ? request.portMappings as PortMappingParam[]
+        : undefined;
+      const result = await startContainer(appId, appType, portMappings);
       return { ...result, id };
     }
 

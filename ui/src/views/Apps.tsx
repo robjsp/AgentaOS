@@ -10,6 +10,10 @@ import {
   MoreVertical,
   ExternalLink,
   AlertCircle,
+  Network,
+  Copy,
+  Check,
+  AlertTriangle,
 } from 'lucide-react';
 import { appsApi, type App } from '../lib/api';
 import { cn, formatRelativeTime } from '../lib/utils';
@@ -302,6 +306,111 @@ function AppCard({ app }: { app: App }) {
           Updated {formatRelativeTime(app.updated_at)}
         </p>
       </div>
+
+      {/* Port Mappings Panel */}
+      <PortMappingPanel appId={app.id} appStatus={app.status} />
+    </div>
+  );
+}
+
+// Port Mapping Panel Component
+function PortMappingPanel({ appId, appStatus }: { appId: string; appStatus: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copiedPort, setCopiedPort] = useState<number | null>(null);
+  const queryClient = useQueryClient();
+
+  const { data: portsData } = useQuery({
+    queryKey: ['app-ports', appId],
+    queryFn: () => appsApi.getPorts(appId),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ containerPort, protocol, enabled }: { containerPort: number; protocol: 'tcp' | 'udp'; enabled: boolean }) =>
+      appsApi.togglePort(appId, containerPort, protocol, enabled),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['app-ports', appId] });
+    },
+  });
+
+  const ports = portsData?.ports || [];
+
+  if (ports.length === 0) {
+    return null;
+  }
+
+  const copyToClipboard = (hostPort: number) => {
+    navigator.clipboard.writeText(`${window.location.hostname}:${hostPort}`);
+    setCopiedPort(hostPort);
+    setTimeout(() => setCopiedPort(null), 2000);
+  };
+
+  return (
+    <div className="mt-3 pt-3 border-t border-surface-700">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 text-sm text-surface-400 hover:text-surface-300 transition-colors w-full"
+      >
+        <Network className="w-4 h-4" />
+        <span>Port Mappings ({ports.length})</span>
+        <span className={cn("ml-auto transition-transform", expanded && "rotate-180")}>▼</span>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-2">
+          {appStatus === 'running' && ports.some(p => !p.enabled) && (
+            <div className="flex items-center gap-2 text-xs text-yellow-400 bg-yellow-400/10 rounded px-2 py-1">
+              <AlertTriangle className="w-3 h-3" />
+              <span>Restart app to apply port changes</span>
+            </div>
+          )}
+
+          {ports.map((port) => (
+            <div
+              key={`${port.containerPort}-${port.protocol}`}
+              className="flex items-center justify-between bg-surface-800 rounded px-3 py-2"
+            >
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  "w-2 h-2 rounded-full",
+                  port.enabled ? "bg-green-400" : "bg-surface-500"
+                )} />
+                <span className="text-sm font-mono">
+                  {port.protocol.toUpperCase()} :{port.hostPort} → :{port.containerPort}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => copyToClipboard(port.hostPort)}
+                  className="btn-ghost btn-sm p-1"
+                  title="Copy connection string"
+                >
+                  {copiedPort === port.hostPort ? (
+                    <Check className="w-3 h-3 text-green-400" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                </button>
+
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={port.enabled}
+                    onChange={(e) => toggleMutation.mutate({
+                      containerPort: port.containerPort,
+                      protocol: port.protocol,
+                      enabled: e.target.checked,
+                    })}
+                    disabled={toggleMutation.isPending}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-surface-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-500"></div>
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
