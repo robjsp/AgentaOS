@@ -42,3 +42,6 @@ coverage/
 
 # App archives
 sample-apps/**/*.zip
+
+# notes
+future-ideas.md
