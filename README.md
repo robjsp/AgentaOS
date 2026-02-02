@@ -13,6 +13,7 @@ AgentaOS bridges the gap between simple cloud storage services (like Google Driv
 - **System Monitor**: View resource usage in real-time
 - **WebSocket Updates**: Real-time status updates without page refreshes
 - **Container Isolation**: Apps run in isolated Podman containers (user space)
+- **Direct Port Mapping**: Expose TCP/UDP ports for non-HTTP services (game servers, databases, etc.)
 
 ## Architecture: Microkernel with Podman
 
@@ -98,7 +99,9 @@ npm run build
 ./scripts/start-agentaos.sh
 ```
 
-Access AgentaOS at http://localhost:8888
+**Access:**
+- **Web UI**: http://localhost:8888
+- **Direct ports**: `localhost:10000-10099` (for apps with port mappings)
 
 ## Development
 
@@ -209,6 +212,29 @@ my-app.zip
   }
 }
 ```
+
+### Direct Port Mapping
+
+For non-HTTP services (game servers, databases, SSH), apps can expose ports directly:
+
+```json
+{
+  "id": "minecraft",
+  "name": "Minecraft Server",
+  "version": "1.0.0",
+  "runtime": {
+    "image": "itzg/minecraft-server",
+    "port": 25565
+  },
+  "ports": [
+    { "container": 25565, "protocol": "tcp" }
+  ]
+}
+```
+
+- Host ports are auto-assigned from `10000-20000`
+- Toggle ports on/off via the UI (requires app restart)
+- Access via `your-server:10001` (or assigned port)
 
 ## License
 
