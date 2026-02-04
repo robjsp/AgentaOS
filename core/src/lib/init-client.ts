@@ -17,14 +17,27 @@ import {
   ContainerListResponse,
   ContainerStatusResponse,
   ContainerLogsResponse,
+  ContainerExecResponse,
   SystemHealthResponse,
   ImageBuildRequest,
   ImageRemoveRequest,
   ImageBuildResponse,
   PortMapping,
+  TerminalMessage,
+  TerminalInputMessage,
+  TerminalResizeMessage,
+  TerminalDataMessage,
+  TerminalExitMessage,
+  TerminalErrorMessage,
   INIT_SOCKET_PATH,
 } from '../../../shared/protocol';
 import { logger } from './logger';
+
+export interface TerminalSessionCallbacks {
+  onData: (data: string) => void;  // Base64 encoded data
+  onExit: (exitCode: number) => void;
+  onError: (error: string) => void;
+}
 
 export class InitClient {
   private socketPath: string;
@@ -34,6 +47,7 @@ export class InitClient {
     reject: (error: Error) => void;
     timeout: NodeJS.Timeout;
   }> = new Map();
+  private terminalSessions: Map<string, TerminalSessionCallbacks> = new Map();
   private buffer = '';
   private connected = false;
   private reconnecting = false;
@@ -102,17 +116,48 @@ export class InitClient {
       if (!line.trim()) continue;
 
       try {
-        const response = JSON.parse(line) as InitResponse;
-        const pending = this.pendingRequests.get(response.id);
+        const parsed = JSON.parse(line);
 
-        if (pending) {
-          clearTimeout(pending.timeout);
-          this.pendingRequests.delete(response.id);
-          pending.resolve(response);
+        // Check if it's a terminal message (has 'type' field starting with 'terminal:')
+        if ('type' in parsed && typeof parsed.type === 'string' && parsed.type.startsWith('terminal:')) {
+          this.handleTerminalMessage(parsed as TerminalMessage);
+        } else {
+          // Handle as init response
+          const response = parsed as InitResponse;
+          const pending = this.pendingRequests.get(response.id);
+
+          if (pending) {
+            clearTimeout(pending.timeout);
+            this.pendingRequests.delete(response.id);
+            pending.resolve(response);
+          }
         }
       } catch (err) {
         logger.error('Failed to parse Init response:', err);
       }
+    }
+  }
+
+  private handleTerminalMessage(message: TerminalMessage): void {
+    const sessionId = message.sessionId;
+    const callbacks = this.terminalSessions.get(sessionId);
+
+    if (!callbacks) {
+      logger.warn(`Received terminal message for unknown session: ${sessionId}`);
+      return;
+    }
+
+    switch (message.type) {
+      case 'terminal:data':
+        callbacks.onData((message as TerminalDataMessage).data);
+        break;
+      case 'terminal:exit':
+        callbacks.onExit((message as TerminalExitMessage).exitCode);
+        this.terminalSessions.delete(sessionId);
+        break;
+      case 'terminal:error':
+        callbacks.onError((message as TerminalErrorMessage).error);
+        break;
     }
   }
 
@@ -294,6 +339,77 @@ export class InitClient {
   }
 
   /**
+   * Start an exec session in a container
+   * Returns the sessionId that can be used for subsequent operations
+   */
+  async startExec(
+    appId: string,
+    callbacks: TerminalSessionCallbacks,
+    cols: number = 80,
+    rows: number = 24
+  ): Promise<string> {
+    const response = await this.sendRequest<ContainerExecResponse>({
+      op: 'container:exec',
+      appId,
+      cols,
+      rows,
+    });
+
+    if (!response.success || !response.sessionId) {
+      throw new Error(response.error || 'Failed to start exec session');
+    }
+
+    // Register callbacks for this session
+    this.terminalSessions.set(response.sessionId, callbacks);
+
+    return response.sessionId;
+  }
+
+  /**
+   * Send input to a terminal session
+   */
+  sendTerminalInput(sessionId: string, data: string): void {
+    if (!this.connected || !this.socket) {
+      logger.error('Cannot send terminal input: not connected');
+      return;
+    }
+
+    const message: TerminalInputMessage = {
+      type: 'terminal:input',
+      sessionId,
+      data,
+    };
+
+    this.socket.write(JSON.stringify(message) + '\n');
+  }
+
+  /**
+   * Resize a terminal session
+   */
+  sendTerminalResize(sessionId: string, cols: number, rows: number): void {
+    if (!this.connected || !this.socket) {
+      logger.error('Cannot send terminal resize: not connected');
+      return;
+    }
+
+    const message: TerminalResizeMessage = {
+      type: 'terminal:resize',
+      sessionId,
+      cols,
+      rows,
+    };
+
+    this.socket.write(JSON.stringify(message) + '\n');
+  }
+
+  /**
+   * Close a terminal session
+   */
+  closeTerminalSession(sessionId: string): void {
+    this.terminalSessions.delete(sessionId);
+  }
+
+  /**
    * Close the connection
    */
   close(): void {
@@ -302,6 +418,7 @@ export class InitClient {
       this.socket = null;
       this.connected = false;
     }
+    this.terminalSessions.clear();
   }
 }
 

@@ -20,6 +20,8 @@ import { createServer, Server, Socket } from 'net';
 import { spawn, SpawnOptions } from 'child_process';
 import { existsSync, mkdirSync, unlinkSync, readFileSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
+import { randomUUID } from 'crypto';
+import * as pty from 'node-pty';
 import {
   InitRequest,
   InitResponse,
@@ -30,6 +32,11 @@ import {
   INIT_SOCKET_PATH,
   CONTAINER_NAME_PREFIX,
   ImageBuildResponse,
+  ContainerExecResponse,
+  TerminalMessage,
+  TerminalDataMessage,
+  TerminalInputMessage,
+  TerminalResizeMessage,
 } from '../../shared/protocol';
 
 // ============================================================
@@ -423,10 +430,162 @@ async function removeImage(appId: string): Promise<InitResponse> {
 }
 
 // ============================================================
+// TERMINAL SESSION MANAGEMENT
+// ============================================================
+
+interface TerminalSession {
+  pty: pty.IPty;
+  socket: Socket;
+  appId: string;
+}
+
+// Active terminal sessions keyed by sessionId
+const terminalSessions = new Map<string, TerminalSession>();
+
+// Map sockets to their session IDs for cleanup
+const socketSessions = new Map<Socket, Set<string>>();
+
+function startExecSession(
+  appId: string,
+  socket: Socket,
+  cols: number = 80,
+  rows: number = 24
+): ContainerExecResponse {
+  const containerName = getContainerName(appId);
+  const sessionId = randomUUID();
+
+  log('info', `Starting exec session ${sessionId} for container ${containerName}`);
+  log('info', `PTY size: ${cols}x${rows}`);
+
+  try {
+    // Spawn podman exec with PTY using script to force TTY allocation
+    // Linux script syntax: script -q -c "command" /dev/null
+    const cmd = `podman exec -it ${containerName} /bin/sh`;
+    log('info', `Spawning: script -q -c "${cmd}" /dev/null`);
+    const ptyProcess = pty.spawn('script', ['-q', '-c', cmd, '/dev/null'], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd: '/',
+      env: process.env as { [key: string]: string },
+    });
+    log('info', `PTY spawned with pid: ${ptyProcess.pid}`);
+
+    const session: TerminalSession = {
+      pty: ptyProcess,
+      socket,
+      appId,
+    };
+
+    terminalSessions.set(sessionId, session);
+
+    // Track session for this socket
+    if (!socketSessions.has(socket)) {
+      socketSessions.set(socket, new Set());
+    }
+    socketSessions.get(socket)!.add(sessionId);
+
+    // Handle PTY output - send to socket
+    ptyProcess.onData((data: string) => {
+      log('info', `PTY data (${data.length} chars): ${data.substring(0, 50).replace(/\n/g, '\\n')}`);
+      const message: TerminalDataMessage = {
+        type: 'terminal:data',
+        sessionId,
+        data: Buffer.from(data).toString('base64'),
+      };
+      try {
+        socket.write(JSON.stringify(message) + '\n');
+      } catch (err) {
+        log('error', `Failed to write terminal data: ${err}`);
+      }
+    });
+
+    // Handle PTY exit
+    ptyProcess.onExit(({ exitCode, signal }) => {
+      log('info', `Exec session ${sessionId} exited with code ${exitCode}, signal ${signal}`);
+      const exitMessage = {
+        type: 'terminal:exit',
+        sessionId,
+        exitCode,
+      };
+      try {
+        socket.write(JSON.stringify(exitMessage) + '\n');
+      } catch {
+        // Socket may already be closed
+      }
+      cleanupSession(sessionId);
+    });
+
+    return { id: '', success: true, sessionId };
+  } catch (err) {
+    log('error', `Failed to start exec session: ${err}`);
+    return { id: '', success: false, error: `Failed to start exec: ${err}` };
+  }
+}
+
+function handleTerminalInput(message: TerminalInputMessage): void {
+  const session = terminalSessions.get(message.sessionId);
+  if (!session) {
+    log('warn', `Terminal input for unknown session: ${message.sessionId}`);
+    return;
+  }
+
+  try {
+    const data = Buffer.from(message.data, 'base64').toString();
+    session.pty.write(data);
+  } catch (err) {
+    log('error', `Failed to write to PTY: ${err}`);
+  }
+}
+
+function handleTerminalResize(message: TerminalResizeMessage): void {
+  const session = terminalSessions.get(message.sessionId);
+  if (!session) {
+    log('warn', `Terminal resize for unknown session: ${message.sessionId}`);
+    return;
+  }
+
+  try {
+    session.pty.resize(message.cols, message.rows);
+  } catch (err) {
+    log('error', `Failed to resize PTY: ${err}`);
+  }
+}
+
+function cleanupSession(sessionId: string): void {
+  const session = terminalSessions.get(sessionId);
+  if (session) {
+    try {
+      session.pty.kill();
+    } catch {
+      // Already dead
+    }
+    terminalSessions.delete(sessionId);
+    
+    // Remove from socket tracking
+    const socketSessionSet = socketSessions.get(session.socket);
+    if (socketSessionSet) {
+      socketSessionSet.delete(sessionId);
+    }
+  }
+}
+
+function cleanupSocketSessions(socket: Socket): void {
+  const sessionIds = socketSessions.get(socket);
+  if (sessionIds) {
+    for (const sessionId of sessionIds) {
+      log('info', `Cleaning up session ${sessionId} due to socket disconnect`);
+      cleanupSession(sessionId);
+    }
+    socketSessions.delete(socket);
+  }
+}
+
+// ============================================================
 // REQUEST HANDLING
 // ============================================================
 
-async function handleRequest(request: InitRequest): Promise<InitResponse> {
+async function handleRequest(request: InitRequest, socket: Socket): Promise<InitResponse> {
   const { id, op } = request;
 
   // SECURITY: Validate operation
@@ -514,6 +673,18 @@ async function handleRequest(request: InitRequest): Promise<InitResponse> {
       return { ...result, id };
     }
 
+    case 'container:exec': {
+      // Check if container is running first
+      const status = await getContainerStatus(appId);
+      if (status !== 'running') {
+        return { id, success: false, error: 'Container is not running' };
+      }
+      const cols = ('cols' in request && typeof request.cols === 'number') ? request.cols : 80;
+      const rows = ('rows' in request && typeof request.rows === 'number') ? request.rows : 24;
+      const result = startExecSession(appId, socket, cols, rows);
+      return { ...result, id };
+    }
+
     default:
       return { id, success: false, error: 'Unknown operation' };
   }
@@ -540,11 +711,32 @@ function handleConnection(socket: Socket): void {
       if (!line.trim()) continue;
 
       try {
-        const request = JSON.parse(line) as InitRequest;
-        log('debug', `Request: ${request.op} ${('appId' in request) ? request.appId : ''}`);
+        const parsed = JSON.parse(line);
         
-        const response = await handleRequest(request);
-        socket.write(JSON.stringify(response) + '\n');
+        // Check if it's a terminal message (has 'type' field) or init request (has 'op' field)
+        if ('type' in parsed) {
+          // Handle terminal messages
+          const terminalMessage = parsed as TerminalMessage;
+          switch (terminalMessage.type) {
+            case 'terminal:input':
+              handleTerminalInput(terminalMessage as TerminalInputMessage);
+              break;
+            case 'terminal:resize':
+              handleTerminalResize(terminalMessage as TerminalResizeMessage);
+              break;
+            default:
+              log('warn', `Unknown terminal message type: ${terminalMessage.type}`);
+          }
+        } else if ('op' in parsed) {
+          // Handle init requests
+          const request = parsed as InitRequest;
+          log('debug', `Request: ${request.op} ${('appId' in request) ? request.appId : ''}`);
+          
+          const response = await handleRequest(request, socket);
+          socket.write(JSON.stringify(response) + '\n');
+        } else {
+          log('warn', 'Unknown message format');
+        }
       } catch (err) {
         log('warn', `Invalid request: ${err}`);
         socket.write(JSON.stringify({
@@ -558,10 +750,12 @@ function handleConnection(socket: Socket): void {
 
   socket.on('close', () => {
     log('debug', `Client disconnected: ${clientId}`);
+    cleanupSocketSessions(socket);
   });
 
   socket.on('error', (err) => {
     log('error', `Socket error: ${err.message}`);
+    cleanupSocketSessions(socket);
   });
 }
 
@@ -614,6 +808,12 @@ async function main(): Promise<void> {
   // Graceful shutdown
   const shutdown = () => {
     log('info', 'Shutting down...');
+    
+    // Cleanup all terminal sessions
+    for (const sessionId of terminalSessions.keys()) {
+      cleanupSession(sessionId);
+    }
+    
     server.close(() => {
       if (existsSync(CONFIG.socketPath)) {
         unlinkSync(CONFIG.socketPath);

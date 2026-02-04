@@ -17,9 +17,63 @@ export type InitOperation =
   | 'container:status'
   | 'container:logs'
   | 'container:list'
+  | 'container:exec'
   | 'image:build'
   | 'image:remove'
   | 'system:health';
+
+// ============================================================
+// TERMINAL/EXEC STREAMING TYPES
+// ============================================================
+
+/**
+ * Messages for streaming PTY I/O over the socket
+ * These are sent after the initial exec request is established
+ */
+export type TerminalMessageType = 
+  | 'terminal:data'      // PTY output data
+  | 'terminal:input'     // User input to PTY
+  | 'terminal:resize'    // Terminal resize event
+  | 'terminal:exit'      // PTY process exited
+  | 'terminal:error';    // Error occurred
+
+export interface TerminalDataMessage {
+  type: 'terminal:data';
+  sessionId: string;
+  data: string;  // Base64 encoded binary data
+}
+
+export interface TerminalInputMessage {
+  type: 'terminal:input';
+  sessionId: string;
+  data: string;  // Base64 encoded input
+}
+
+export interface TerminalResizeMessage {
+  type: 'terminal:resize';
+  sessionId: string;
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalExitMessage {
+  type: 'terminal:exit';
+  sessionId: string;
+  exitCode: number;
+}
+
+export interface TerminalErrorMessage {
+  type: 'terminal:error';
+  sessionId: string;
+  error: string;
+}
+
+export type TerminalMessage =
+  | TerminalDataMessage
+  | TerminalInputMessage
+  | TerminalResizeMessage
+  | TerminalExitMessage
+  | TerminalErrorMessage;
 
 // ============================================================
 // PORT MAPPING TYPES
@@ -94,6 +148,13 @@ export interface ImageRemoveRequest extends InitRequestBase {
   appId: string;
 }
 
+export interface ContainerExecRequest extends InitRequestBase {
+  op: 'container:exec';
+  appId: string;
+  cols?: number;  // Initial terminal columns (default: 80)
+  rows?: number;  // Initial terminal rows (default: 24)
+}
+
 export type InitRequest =
   | ContainerStartRequest
   | ContainerStopRequest
@@ -101,6 +162,7 @@ export type InitRequest =
   | ContainerStatusRequest
   | ContainerLogsRequest
   | ContainerListRequest
+  | ContainerExecRequest
   | ImageBuildRequest
   | ImageRemoveRequest
   | SystemHealthRequest;
@@ -160,6 +222,10 @@ export interface ImageBuildResponse extends InitResponseBase {
 
 export interface ImageRemoveResponse extends InitResponseBase {}
 
+export interface ContainerExecResponse extends InitResponseBase {
+  sessionId?: string;  // Session ID for subsequent terminal messages
+}
+
 export type InitResponse =
   | ContainerStartResponse
   | ContainerStopResponse
@@ -167,6 +233,7 @@ export type InitResponse =
   | ContainerStatusResponse
   | ContainerLogsResponse
   | ContainerListResponse
+  | ContainerExecResponse
   | ImageBuildResponse
   | ImageRemoveResponse
   | SystemHealthResponse;
@@ -194,6 +261,7 @@ export function isValidOperation(op: string): op is InitOperation {
     'container:status',
     'container:logs',
     'container:list',
+    'container:exec',
     'image:build',
     'image:remove',
     'system:health',

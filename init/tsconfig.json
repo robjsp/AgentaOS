@@ -5,15 +5,14 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2022"],
     "outDir": "./dist",
-    "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "declaration": true,
+    "declaration": false,
     "sourceMap": true
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "../shared/**/*"],
   "exclude": ["node_modules", "dist"]
 }

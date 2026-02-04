@@ -13,6 +13,7 @@ import { documentsRoutes } from './routes/documents';
 import { systemRoutes } from './routes/system';
 import { appProxyRoutes } from './routes/app-proxy';
 import { websocketHandler } from './websocket';
+import { terminalHandler } from './websocket/terminal';
 
 export async function createServer(): Promise<FastifyInstance> {
   const server = Fastify({
@@ -40,9 +41,17 @@ export async function createServer(): Promise<FastifyInstance> {
   // User app proxy routes
   await server.register(appProxyRoutes, { prefix: '/apps' });
 
-  // WebSocket endpoint
+  // WebSocket endpoints
   server.register(async function (fastify) {
+    // General event WebSocket
     fastify.get('/ws', { websocket: true }, websocketHandler);
+    
+    // Terminal WebSocket for app exec
+    fastify.get<{ Params: { appId: string } }>(
+      '/ws/terminal/:appId', 
+      { websocket: true }, 
+      terminalHandler
+    );
   });
 
   // Serve static UI files (in production)

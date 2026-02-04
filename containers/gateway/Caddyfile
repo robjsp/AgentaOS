@@ -13,8 +13,13 @@
         reverse_proxy agentaos-api:3000
     }
 
-    # WebSocket
+    # WebSocket - exact /ws path
     handle /ws {
+        reverse_proxy agentaos-api:3000
+    }
+    
+    # WebSocket - subpaths like /ws/terminal/*
+    handle /ws/* {
         reverse_proxy agentaos-api:3000
     }
 

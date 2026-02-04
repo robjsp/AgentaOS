@@ -14,7 +14,9 @@ import {
   Copy,
   Check,
   AlertTriangle,
+  Terminal,
 } from 'lucide-react';
+import { TerminalModal } from '../components/TerminalModal';
 import { appsApi, type App } from '../lib/api';
 import { cn, formatRelativeTime } from '../lib/utils';
 
@@ -125,6 +127,7 @@ export function Apps() {
 
 function AppCard({ app }: { app: App }) {
   const [showMenu, setShowMenu] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
@@ -223,6 +226,18 @@ function AppCard({ app }: { app: App }) {
                     Open App
                   </a>
                 )}
+                {isRunning && (
+                  <button
+                    onClick={() => {
+                      setShowTerminal(true);
+                      setShowMenu(false);
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-surface-700 transition-colors w-full text-left"
+                  >
+                    <Terminal className="w-4 h-4" />
+                    Terminal
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     restartMutation.mutate();
@@ -309,6 +324,14 @@ function AppCard({ app }: { app: App }) {
 
       {/* Port Mappings Panel */}
       <PortMappingPanel appId={app.id} appStatus={app.status} />
+
+      {/* Terminal Modal */}
+      <TerminalModal
+        appId={app.id}
+        appName={app.name}
+        isOpen={showTerminal}
+        onClose={() => setShowTerminal(false)}
+      />
     </div>
   );
 }

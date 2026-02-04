@@ -7,11 +7,13 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsup src/index.ts --format esm --clean",
+    "build": "tsup src/index.ts --format esm --clean --external node-pty",
     "start": "node dist/index.js",
     "lint": "eslint src --ext .ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "node-pty": "^1.0.0"
+  },
   "devDependencies": {
     "@types/node": "^20.11.5",
     "tsup": "^8.0.1",
