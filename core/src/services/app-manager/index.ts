@@ -63,6 +63,16 @@ export interface App {
   updated_at: string;
 }
 
+export interface AppInstance {
+  id: string;
+  app_id: string;
+  instance_number: number;
+  status: "stopped" | "starting" | "running" | "error";
+  container_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export class AppManager {
   private useInitSocket: boolean;
 
@@ -586,5 +596,215 @@ export class AppManager {
     });
 
     return allocation;
+  }
+
+  // ============================================================
+  // INSTANCE MANAGEMENT (Multi-Instance Support)
+  // ============================================================
+
+  /**
+   * List all instances for an app
+   */
+  listInstances(appId: string): AppInstance[] {
+    const app = this.getApp(appId);
+    if (!app) {
+      throw new Error(`App ${appId} not found`);
+    }
+
+    const db = getDb();
+    return db
+      .prepare("SELECT * FROM app_instances WHERE app_id = ? ORDER BY instance_number")
+      .all(appId) as AppInstance[];
+  }
+
+  /**
+   * Get a specific instance
+   */
+  getInstance(appId: string, instanceId: string): AppInstance | undefined {
+    const app = this.getApp(appId);
+    if (!app) {
+      throw new Error(`App ${appId} not found`);
+    }
+
+    const db = getDb();
+    return db
+      .prepare("SELECT * FROM app_instances WHERE app_id = ? AND id = ?")
+      .get(appId, instanceId) as AppInstance | undefined;
+  }
+
+  /**
+   * Create a new instance for an app
+   * Returns the next available instance number
+   */
+  async createInstance(appId: string): Promise<AppInstance> {
+    const app = this.getApp(appId);
+    if (!app) {
+      throw new Error(`App ${appId} not found`);
+    }
+
+    const db = getDb();
+
+    // Get next instance number
+    const maxResult = db
+      .prepare("SELECT MAX(instance_number) as max_num FROM app_instances WHERE app_id = ?")
+      .get(appId) as { max_num: number | null };
+    
+    const nextNumber = (maxResult.max_num || 0) + 1;
+    const instanceId = `${appId}-${nextNumber}`;
+
+    // Insert new instance
+    db.prepare(`
+      INSERT INTO app_instances (id, app_id, instance_number, status)
+      VALUES (?, ?, ?, 'stopped')
+    `).run(instanceId, appId, nextNumber);
+
+    const instance = this.getInstance(appId, instanceId)!;
+    logger.info(`Created instance ${instanceId} for app ${appId}`);
+    emitEvent(Events.APP_INSTALLED, { app, instance }); // Reuse event for now
+
+    return instance;
+  }
+
+  /**
+   * Delete an instance
+   * Instance must be stopped first
+   */
+  async deleteInstance(appId: string, instanceId: string): Promise<void> {
+    const instance = this.getInstance(appId, instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    if (instance.status === "running" || instance.status === "starting") {
+      throw new Error(`Instance ${instanceId} must be stopped before deletion`);
+    }
+
+    const db = getDb();
+
+    // Delete any port allocations for this instance
+    db.prepare("DELETE FROM port_allocations WHERE instance_id = ?").run(instanceId);
+
+    // Delete the instance
+    db.prepare("DELETE FROM app_instances WHERE id = ?").run(instanceId);
+
+    logger.info(`Deleted instance ${instanceId}`);
+    emitEvent(Events.APP_UNINSTALLED, { appId, instanceId }); // Reuse event for now
+  }
+
+  /**
+   * Start a specific instance
+   */
+  async startInstance(appId: string, instanceId: string): Promise<AppInstance> {
+    const app = this.getApp(appId);
+    if (!app) {
+      throw new Error(`App ${appId} not found`);
+    }
+
+    const instance = this.getInstance(appId, instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    if (instance.status === "running") {
+      return instance;
+    }
+
+    const db = getDb();
+
+    // Update status to starting
+    db.prepare(
+      "UPDATE app_instances SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    ).run("starting", instanceId);
+
+    try {
+      if (this.useInitSocket) {
+        const initClient = getInitClient();
+
+        // Get port mappings for this instance (or use app-level ports for now)
+        const portAllocator = getPortAllocator();
+        const portMappings = portAllocator.getEnabledPortMappings(appId);
+
+        // Start container with instanceId
+        const result = await initClient.startContainer(
+          appId,
+          "user",
+          portMappings,
+          instanceId,
+        );
+
+        // Update instance with container ID
+        db.prepare(
+          "UPDATE app_instances SET status = ?, container_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+        ).run("running", result.containerId || null, instanceId);
+      } else {
+        // Standalone mode - just mark as running
+        db.prepare(
+          "UPDATE app_instances SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+        ).run("running", instanceId);
+      }
+
+      const updatedInstance = this.getInstance(appId, instanceId)!;
+      logger.info(`Started instance ${instanceId}`);
+      emitEvent(Events.APP_STARTED, { app, instance: updatedInstance });
+
+      return updatedInstance;
+    } catch (error) {
+      db.prepare(
+        "UPDATE app_instances SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+      ).run("error", instanceId);
+      throw error;
+    }
+  }
+
+  /**
+   * Stop a specific instance
+   */
+  async stopInstance(appId: string, instanceId: string): Promise<AppInstance> {
+    const app = this.getApp(appId);
+    if (!app) {
+      throw new Error(`App ${appId} not found`);
+    }
+
+    const instance = this.getInstance(appId, instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    if (this.useInitSocket) {
+      const initClient = getInitClient();
+      await initClient.stopContainer(appId, instanceId);
+    }
+
+    const db = getDb();
+    db.prepare(
+      "UPDATE app_instances SET status = ?, container_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    ).run("stopped", instanceId);
+
+    const updatedInstance = this.getInstance(appId, instanceId)!;
+    logger.info(`Stopped instance ${instanceId}`);
+    emitEvent(Events.APP_STOPPED, { app, instance: updatedInstance });
+
+    return updatedInstance;
+  }
+
+  /**
+   * Get logs for a specific instance
+   */
+  async getInstanceLogs(
+    appId: string,
+    instanceId: string,
+    tail: number = 100,
+  ): Promise<string[]> {
+    const instance = this.getInstance(appId, instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    if (this.useInitSocket) {
+      const initClient = getInitClient();
+      return await initClient.getContainerLogs(appId, tail, instanceId);
+    }
+
+    return [];
   }
 }

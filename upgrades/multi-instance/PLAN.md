@@ -196,7 +196,7 @@ Stage 7 (Docs)
 |-------|-------------|--------|
 | 1 | Database schema for instances | ✅ Complete |
 | 2 | Init: Instance-aware container naming | ✅ Complete |
-| 3 | App Manager: Instance CRUD operations | Pending |
+| 3 | App Manager: Instance CRUD operations | ✅ Complete |
 | 4 | API routes for instances | Pending |
 | 5 | Port allocation per instance | Pending |
 | 6 | Update start/stop to use instances | Pending |
@@ -372,9 +372,27 @@ stopInstance(appId: string, instanceId: string): Promise<AppInstance>
 getInstanceLogs(appId: string, instanceId: string, tail?: number): Promise<string[]>
 ```
 
+### Stage 3 Implementation Summary
+
+**Files modified:**
+- `core/src/lib/init-client.ts`: Added `instanceId` parameter to `startContainer()`, `stopContainer()`, `restartContainer()`, `getContainerStatus()`, `getContainerLogs()`
+- `core/src/services/app-manager/index.ts`: Added `AppInstance` interface and instance CRUD methods
+
+**New methods in AppManager:**
+- `listInstances(appId)` - List all instances for an app
+- `getInstance(appId, instanceId)` - Get a specific instance
+- `createInstance(appId)` - Create a new instance (auto-increments instance number)
+- `deleteInstance(appId, instanceId)` - Delete an instance (must be stopped)
+- `startInstance(appId, instanceId)` - Start a specific instance
+- `stopInstance(appId, instanceId)` - Stop a specific instance
+- `getInstanceLogs(appId, instanceId, tail?)` - Get logs for a specific instance
+
 ### Stage 3 Test
 
 ```bash
+# Note: These tests require Stage 4 (API routes) to be complete
+# For now, test via the AppManager directly in code
+
 # Unit test instance creation
 curl -X POST /api/apps/hello/instances
 # Should create instance "hello-1"

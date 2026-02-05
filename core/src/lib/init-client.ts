@@ -150,18 +150,28 @@ export class InitClient {
 
   /**
    * Start a container
+   * @param appId - The app ID
+   * @param appType - "user" or "system"
+   * @param portMappings - Port mappings for the container
+   * @param instanceId - Optional instance ID for multi-instance support
    */
   async startContainer(
     appId: string,
     appType: "user" | "system" = "user",
     portMappings?: PortMapping[],
+    instanceId?: string,
   ): Promise<{ containerId?: string }> {
-    const response = await this.sendRequest<InitResponse>({
+    const request: Omit<ContainerStartRequest, "id"> = {
       op: "container:start",
       appId,
       appType,
       portMappings,
-    } as Omit<ContainerStartRequest, "id">);
+    };
+    if (instanceId) {
+      request.instanceId = instanceId;
+    }
+
+    const response = await this.sendRequest<InitResponse>(request);
 
     if (!response.success) {
       throw new Error(response.error || "Failed to start container");
@@ -172,12 +182,19 @@ export class InitClient {
 
   /**
    * Stop a container
+   * @param appId - The app ID
+   * @param instanceId - Optional instance ID for multi-instance support
    */
-  async stopContainer(appId: string): Promise<void> {
-    const response = await this.sendRequest<InitResponse>({
+  async stopContainer(appId: string, instanceId?: string): Promise<void> {
+    const request: Omit<ContainerStopRequest, "id"> = {
       op: "container:stop",
       appId,
-    } as Omit<ContainerStopRequest, "id">);
+    };
+    if (instanceId) {
+      (request as ContainerStopRequest).instanceId = instanceId;
+    }
+
+    const response = await this.sendRequest<InitResponse>(request);
 
     if (!response.success) {
       throw new Error(response.error || "Failed to stop container");
@@ -186,16 +203,25 @@ export class InitClient {
 
   /**
    * Restart a container
+   * @param appId - The app ID
+   * @param portMappings - Port mappings for the container
+   * @param instanceId - Optional instance ID for multi-instance support
    */
   async restartContainer(
     appId: string,
     portMappings?: PortMapping[],
+    instanceId?: string,
   ): Promise<{ containerId?: string }> {
-    const response = await this.sendRequest<InitResponse>({
+    const request: { op: "container:restart"; appId: string; portMappings?: PortMapping[]; instanceId?: string } = {
       op: "container:restart",
       appId,
       portMappings,
-    });
+    };
+    if (instanceId) {
+      request.instanceId = instanceId;
+    }
+
+    const response = await this.sendRequest<InitResponse>(request);
 
     if (!response.success) {
       throw new Error(response.error || "Failed to restart container");
@@ -206,12 +232,22 @@ export class InitClient {
 
   /**
    * Get container status
+   * @param appId - The app ID
+   * @param instanceId - Optional instance ID for multi-instance support
    */
-  async getContainerStatus(appId: string): Promise<ContainerStatusResponse> {
-    const response = await this.sendRequest<ContainerStatusResponse>({
+  async getContainerStatus(
+    appId: string,
+    instanceId?: string,
+  ): Promise<ContainerStatusResponse> {
+    const request: Omit<ContainerStatusRequest, "id"> = {
       op: "container:status",
       appId,
-    } as Omit<ContainerStatusRequest, "id">);
+    };
+    if (instanceId) {
+      (request as ContainerStatusRequest).instanceId = instanceId;
+    }
+
+    const response = await this.sendRequest<ContainerStatusResponse>(request);
 
     if (!response.success) {
       throw new Error(response.error || "Failed to get container status");
@@ -222,13 +258,25 @@ export class InitClient {
 
   /**
    * Get container logs
+   * @param appId - The app ID
+   * @param tail - Number of log lines to return
+   * @param instanceId - Optional instance ID for multi-instance support
    */
-  async getContainerLogs(appId: string, tail: number = 100): Promise<string[]> {
-    const response = await this.sendRequest<ContainerLogsResponse>({
+  async getContainerLogs(
+    appId: string,
+    tail: number = 100,
+    instanceId?: string,
+  ): Promise<string[]> {
+    const request: Omit<ContainerLogsRequest, "id"> = {
       op: "container:logs",
       appId,
       tail,
-    } as Omit<ContainerLogsRequest, "id">);
+    };
+    if (instanceId) {
+      (request as ContainerLogsRequest).instanceId = instanceId;
+    }
+
+    const response = await this.sendRequest<ContainerLogsResponse>(request);
 
     if (!response.success) {
       throw new Error(response.error || "Failed to get container logs");
