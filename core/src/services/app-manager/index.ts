@@ -135,6 +135,14 @@ export class AppManager {
         );
       }
 
+      // Validate Dockerfile exists
+      const dockerfilePath = path.join(extractDir, "Dockerfile");
+      if (!fs.existsSync(dockerfilePath)) {
+        throw new Error(
+          "Dockerfile not found in zip file. Apps must include a Dockerfile.",
+        );
+      }
+
       // Check if app already exists
       const existing = this.getApp(manifest.id);
       if (existing) {

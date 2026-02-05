@@ -4,8 +4,6 @@
   "version": "1.0.0",
   "description": "A simple hello world app to test the AgentaOS app lifecycle",
   "runtime": {
-    "image": "node:20-slim",
-    "command": ["node", "server.js"],
     "port": 3000
   },
   "route": "/hello",

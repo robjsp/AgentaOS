@@ -184,14 +184,38 @@ For development, use the Vagrant VM which has Podman pre-configured. See "Runnin
 
 ## App Development
 
-Apps are packaged as `.zip` files containing:
+Apps are packaged as `.zip` files containing a Dockerfile and build context:
 
 ```
 my-app.zip
+├── Dockerfile        # Container build instructions (REQUIRED)
 ├── app.json          # Manifest (required)
 ├── server.js         # App entry point
 ├── package.json      # Dependencies
 └── ...
+```
+
+### Dockerfile (Required)
+
+Every app must include a Dockerfile that builds the container image:
+
+```dockerfile
+FROM node:20-slim
+
+WORKDIR /app
+
+# Copy and install dependencies
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# Copy app source
+COPY . .
+
+# Expose the app port
+EXPOSE 3000
+
+# Start the app
+CMD ["node", "server.js"]
 ```
 
 ### app.json (Manifest)
@@ -203,8 +227,6 @@ my-app.zip
   "version": "1.0.0",
   "description": "A sample app",
   "runtime": {
-    "image": "node:20-slim",
-    "command": ["node", "server.js"],
     "port": 3000
   },
   "route": "/my-app",
@@ -217,6 +239,8 @@ my-app.zip
 }
 ```
 
+The `runtime.port` field tells AgentaOS which port your app listens on for HTTP routing.
+
 ### Direct Port Mapping
 
 For non-HTTP services (game servers, databases, SSH), apps can expose ports directly:
@@ -227,7 +251,6 @@ For non-HTTP services (game servers, databases, SSH), apps can expose ports dire
   "name": "Minecraft Server",
   "version": "1.0.0",
   "runtime": {
-    "image": "itzg/minecraft-server",
     "port": 25565
   },
   "ports": [{ "container": 25565, "protocol": "tcp" }]

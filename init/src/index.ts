@@ -18,13 +18,7 @@
 
 import { createServer, Server, Socket } from "net";
 import { spawn, SpawnOptions } from "child_process";
-import {
-  existsSync,
-  mkdirSync,
-  unlinkSync,
-  readFileSync,
-  writeFileSync,
-} from "fs";
+import { existsSync, mkdirSync, unlinkSync, readFileSync } from "fs";
 import { dirname } from "path";
 import {
   InitRequest,
@@ -374,32 +368,6 @@ async function listContainers(): Promise<InitResponse> {
 // IMAGE MANAGEMENT
 // ============================================================
 
-function generateDefaultDockerfile(manifest: {
-  runtime?: { image?: string; command?: string[]; port?: number };
-}): string {
-  const baseImage = manifest.runtime?.image || "node:20-slim";
-  const command = manifest.runtime?.command || ["node", "index.js"];
-  const port = manifest.runtime?.port || 3000;
-
-  return `# Auto-generated Dockerfile for AgentaOS app
-FROM ${baseImage}
-
-WORKDIR /app
-
-# Copy app files
-COPY . .
-
-# Install dependencies if package.json exists
-RUN if [ -f package.json ]; then npm install --omit=dev; fi
-
-# Expose the app port
-EXPOSE ${port}
-
-# Run the app
-CMD ${JSON.stringify(command)}
-`;
-}
-
 async function buildImage(
   appId: string,
   appType: "user" | "system",
@@ -419,24 +387,15 @@ async function buildImage(
     return { id: "", success: false, error: "App manifest not found" };
   }
 
-  let manifest: {
-    runtime?: { image?: string; command?: string[]; port?: number };
-  };
-  try {
-    manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-  } catch {
-    return { id: "", success: false, error: "Invalid app manifest" };
-  }
-
-  // Check if Dockerfile exists, generate default if not
+  // Dockerfile is required
   const dockerfilePath = `${appDir}/Dockerfile`;
-  let generatedDockerfile = false;
-
   if (!existsSync(dockerfilePath)) {
-    log("info", `No Dockerfile found for ${appId}, generating default`);
-    const dockerfile = generateDefaultDockerfile(manifest);
-    writeFileSync(dockerfilePath, dockerfile);
-    generatedDockerfile = true;
+    log("error", `No Dockerfile found for ${appId}`);
+    return {
+      id: "",
+      success: false,
+      error: "Dockerfile not found. Apps must include a Dockerfile.",
+    };
   }
 
   const imageName = `${CONTAINER_NAME_PREFIX}-${appId}:latest`;
@@ -450,15 +409,6 @@ async function buildImage(
     dockerfilePath,
     appDir,
   ]);
-
-  // Clean up generated Dockerfile
-  if (generatedDockerfile) {
-    try {
-      unlinkSync(dockerfilePath);
-    } catch {
-      // Ignore cleanup errors
-    }
-  }
 
   if (result.code !== 0) {
     log("error", `Failed to build image: ${result.stderr}`);
