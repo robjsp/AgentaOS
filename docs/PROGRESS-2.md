@@ -3,7 +3,7 @@
 ## Current Status: ~~APP INSTALL FLOW IMPLEMENTED, NEEDS TESTING~~ COMPLETE ✓
 
 > **For app development:** See [docs/APP_DEVELOPMENT.md](docs/APP_DEVELOPMENT.md)
-> 
+>
 > **Next:** See [PROGRESS-3.md](PROGRESS-3.md) for full app lifecycle test results
 
 ## What Was Built This Session
@@ -11,12 +11,14 @@
 ### 1. Image Building at Install Time
 
 **Files modified:**
+
 - `shared/protocol.ts` - Added `image:build`, `image:remove` operations
 - `init/src/index.ts` - Added `buildImage()`, `removeImage()` handlers
 - `core/src/lib/init-client.ts` - Added `buildImage()`, `removeImage()` client methods
 - `core/src/services/app-manager/index.ts` - Calls build on install, remove on uninstall
 
 **How it works:**
+
 1. User uploads app.zip via `POST /api/apps`
 2. API extracts to `/data/apps/{app-id}/`
 3. API calls Init via socket: `image:build`
@@ -25,6 +27,7 @@
 6. App record saved to database
 
 **Default Dockerfile generated:**
+
 ```dockerfile
 FROM {runtime.image}
 WORKDIR /app
@@ -37,13 +40,16 @@ CMD {runtime.command}
 ### 2. API as App Proxy
 
 **Files added:**
+
 - `core/src/server/routes/app-proxy.ts` - Proxy handler
 
 **Files modified:**
+
 - `core/src/server/index.ts` - Registered `/apps` route
 - `containers/gateway/Caddyfile` - Updated comments
 
 **How it works:**
+
 1. Request comes to Gateway: `GET /apps/my-app/some/path`
 2. Gateway forwards to API (all `/apps/*` → API)
 3. API looks up app by route in database
@@ -57,6 +63,7 @@ CMD {runtime.command}
 ### Test Steps
 
 1. **Rebuild & restart services in VM:**
+
    ```bash
    vagrant ssh
    cd /vagrant
@@ -66,12 +73,14 @@ CMD {runtime.command}
    ```
 
 2. **Create a test app** (in project):
+
    ```bash
    mkdir -p sample-apps/hello
    cd sample-apps/hello
    ```
 
    Create `app.json`:
+
    ```json
    {
      "id": "hello",
@@ -87,27 +96,33 @@ CMD {runtime.command}
    ```
 
    Create `server.js`:
+
    ```javascript
-   const http = require('http');
+   const http = require("http");
    const server = http.createServer((req, res) => {
-     res.writeHead(200, { 'Content-Type': 'application/json' });
-     res.end(JSON.stringify({ message: 'Hello from AgentaOS app!', path: req.url }));
+     res.writeHead(200, { "Content-Type": "application/json" });
+     res.end(
+       JSON.stringify({ message: "Hello from AgentaOS app!", path: req.url }),
+     );
    });
-   server.listen(3000, () => console.log('Hello app running on port 3000'));
+   server.listen(3000, () => console.log("Hello app running on port 3000"));
    ```
 
    Zip it:
+
    ```bash
    zip -r hello-app.zip app.json server.js
    ```
 
 3. **Upload the app:**
+
    ```bash
    curl -X POST http://localhost:8888/api/apps \
      -F "file=@sample-apps/hello/hello-app.zip"
    ```
 
 4. **Start the app:**
+
    ```bash
    curl -X POST http://localhost:8888/api/apps/hello/start
    ```
@@ -162,12 +177,12 @@ CMD {runtime.command}
 
 ## Files Changed This Session
 
-| File | Change |
-|------|--------|
-| `shared/protocol.ts` | Added image:build, image:remove operations |
-| `init/src/index.ts` | Added buildImage, removeImage, generateDefaultDockerfile |
-| `core/src/lib/init-client.ts` | Added buildImage, removeImage methods |
-| `core/src/services/app-manager/index.ts` | Build image on install, remove on uninstall |
-| `core/src/server/routes/app-proxy.ts` | **NEW** - Proxy handler for /apps/* |
-| `core/src/server/index.ts` | Registered app-proxy routes |
-| `containers/gateway/Caddyfile` | Updated comments |
+| File                                     | Change                                                   |
+| ---------------------------------------- | -------------------------------------------------------- |
+| `shared/protocol.ts`                     | Added image:build, image:remove operations               |
+| `init/src/index.ts`                      | Added buildImage, removeImage, generateDefaultDockerfile |
+| `core/src/lib/init-client.ts`            | Added buildImage, removeImage methods                    |
+| `core/src/services/app-manager/index.ts` | Build image on install, remove on uninstall              |
+| `core/src/server/routes/app-proxy.ts`    | **NEW** - Proxy handler for /apps/\*                     |
+| `core/src/server/index.ts`               | Registered app-proxy routes                              |
+| `containers/gateway/Caddyfile`           | Updated comments                                         |

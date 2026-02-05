@@ -1,12 +1,12 @@
 /**
  * Init Socket Client
- * 
+ *
  * Client for communicating with the Init microkernel via Unix socket.
  * Used by the App Manager to start/stop/manage containers.
  */
 
-import { createConnection, Socket } from 'net';
-import { randomUUID } from 'crypto';
+import { createConnection, Socket } from "net";
+import { randomUUID } from "crypto";
 import {
   InitRequest,
   InitResponse,
@@ -23,18 +23,21 @@ import {
   ImageBuildResponse,
   PortMapping,
   INIT_SOCKET_PATH,
-} from '../../../shared/protocol';
-import { logger } from './logger';
+} from "../../../shared/protocol";
+import { logger } from "./logger";
 
 export class InitClient {
   private socketPath: string;
   private socket: Socket | null = null;
-  private pendingRequests: Map<string, {
-    resolve: (response: InitResponse) => void;
-    reject: (error: Error) => void;
-    timeout: NodeJS.Timeout;
-  }> = new Map();
-  private buffer = '';
+  private pendingRequests: Map<
+    string,
+    {
+      resolve: (response: InitResponse) => void;
+      reject: (error: Error) => void;
+      timeout: NodeJS.Timeout;
+    }
+  > = new Map();
+  private buffer = "";
   private connected = false;
   private reconnecting = false;
 
@@ -51,29 +54,29 @@ export class InitClient {
     return new Promise((resolve, reject) => {
       this.socket = createConnection(this.socketPath);
 
-      this.socket.on('connect', () => {
+      this.socket.on("connect", () => {
         this.connected = true;
         this.reconnecting = false;
-        logger.info('Connected to Init socket');
+        logger.info("Connected to Init socket");
         resolve();
       });
 
-      this.socket.on('data', (data: Buffer) => {
+      this.socket.on("data", (data: Buffer) => {
         this.handleData(data);
       });
 
-      this.socket.on('close', () => {
+      this.socket.on("close", () => {
         this.connected = false;
         this.socket = null;
-        logger.warn('Disconnected from Init socket');
+        logger.warn("Disconnected from Init socket");
         this.scheduleReconnect();
       });
 
-      this.socket.on('error', (err) => {
+      this.socket.on("error", (err) => {
         if (!this.connected) {
           reject(err);
         } else {
-          logger.error('Init socket error:', err.message);
+          logger.error("Init socket error:", err.message);
         }
       });
     });
@@ -87,7 +90,7 @@ export class InitClient {
       try {
         await this.connect();
       } catch (err) {
-        logger.error('Failed to reconnect to Init:', err);
+        logger.error("Failed to reconnect to Init:", err);
         this.scheduleReconnect();
       }
     }, 5000);
@@ -95,8 +98,8 @@ export class InitClient {
 
   private handleData(data: Buffer): void {
     this.buffer += data.toString();
-    const lines = this.buffer.split('\n');
-    this.buffer = lines.pop() || '';
+    const lines = this.buffer.split("\n");
+    this.buffer = lines.pop() || "";
 
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -111,7 +114,7 @@ export class InitClient {
           pending.resolve(response);
         }
       } catch (err) {
-        logger.error('Failed to parse Init response:', err);
+        logger.error("Failed to parse Init response:", err);
       }
     }
   }
@@ -119,7 +122,9 @@ export class InitClient {
   /**
    * Send a request to Init and wait for response
    */
-  private async sendRequest<T extends InitResponse>(request: Omit<InitRequest, 'id'>): Promise<T> {
+  private async sendRequest<T extends InitResponse>(
+    request: Omit<InitRequest, "id">,
+  ): Promise<T> {
     if (!this.connected || !this.socket) {
       await this.connect();
     }
@@ -130,7 +135,7 @@ export class InitClient {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id);
-        reject(new Error('Request timeout'));
+        reject(new Error("Request timeout"));
       }, 30000);
 
       this.pendingRequests.set(id, {
@@ -139,7 +144,7 @@ export class InitClient {
         timeout,
       });
 
-      this.socket!.write(JSON.stringify(fullRequest) + '\n');
+      this.socket!.write(JSON.stringify(fullRequest) + "\n");
     });
   }
 
@@ -147,19 +152,19 @@ export class InitClient {
    * Start a container
    */
   async startContainer(
-    appId: string, 
-    appType: 'user' | 'system' = 'user',
-    portMappings?: PortMapping[]
+    appId: string,
+    appType: "user" | "system" = "user",
+    portMappings?: PortMapping[],
   ): Promise<{ containerId?: string }> {
     const response = await this.sendRequest<InitResponse>({
-      op: 'container:start',
+      op: "container:start",
       appId,
       appType,
       portMappings,
-    } as Omit<ContainerStartRequest, 'id'>);
+    } as Omit<ContainerStartRequest, "id">);
 
     if (!response.success) {
-      throw new Error(response.error || 'Failed to start container');
+      throw new Error(response.error || "Failed to start container");
     }
 
     return { containerId: (response as { containerId?: string }).containerId };
@@ -170,12 +175,12 @@ export class InitClient {
    */
   async stopContainer(appId: string): Promise<void> {
     const response = await this.sendRequest<InitResponse>({
-      op: 'container:stop',
+      op: "container:stop",
       appId,
-    } as Omit<ContainerStopRequest, 'id'>);
+    } as Omit<ContainerStopRequest, "id">);
 
     if (!response.success) {
-      throw new Error(response.error || 'Failed to stop container');
+      throw new Error(response.error || "Failed to stop container");
     }
   }
 
@@ -184,16 +189,16 @@ export class InitClient {
    */
   async restartContainer(
     appId: string,
-    portMappings?: PortMapping[]
+    portMappings?: PortMapping[],
   ): Promise<{ containerId?: string }> {
     const response = await this.sendRequest<InitResponse>({
-      op: 'container:restart',
+      op: "container:restart",
       appId,
       portMappings,
     });
 
     if (!response.success) {
-      throw new Error(response.error || 'Failed to restart container');
+      throw new Error(response.error || "Failed to restart container");
     }
 
     return { containerId: (response as { containerId?: string }).containerId };
@@ -204,12 +209,12 @@ export class InitClient {
    */
   async getContainerStatus(appId: string): Promise<ContainerStatusResponse> {
     const response = await this.sendRequest<ContainerStatusResponse>({
-      op: 'container:status',
+      op: "container:status",
       appId,
-    } as Omit<ContainerStatusRequest, 'id'>);
+    } as Omit<ContainerStatusRequest, "id">);
 
     if (!response.success) {
-      throw new Error(response.error || 'Failed to get container status');
+      throw new Error(response.error || "Failed to get container status");
     }
 
     return response;
@@ -220,13 +225,13 @@ export class InitClient {
    */
   async getContainerLogs(appId: string, tail: number = 100): Promise<string[]> {
     const response = await this.sendRequest<ContainerLogsResponse>({
-      op: 'container:logs',
+      op: "container:logs",
       appId,
       tail,
-    } as Omit<ContainerLogsRequest, 'id'>);
+    } as Omit<ContainerLogsRequest, "id">);
 
     if (!response.success) {
-      throw new Error(response.error || 'Failed to get container logs');
+      throw new Error(response.error || "Failed to get container logs");
     }
 
     return response.logs || [];
@@ -237,11 +242,11 @@ export class InitClient {
    */
   async listContainers(): Promise<ContainerListResponse> {
     const response = await this.sendRequest<ContainerListResponse>({
-      op: 'container:list',
+      op: "container:list",
     });
 
     if (!response.success) {
-      throw new Error(response.error || 'Failed to list containers');
+      throw new Error(response.error || "Failed to list containers");
     }
 
     return response;
@@ -252,11 +257,11 @@ export class InitClient {
    */
   async checkHealth(): Promise<SystemHealthResponse> {
     const response = await this.sendRequest<SystemHealthResponse>({
-      op: 'system:health',
+      op: "system:health",
     });
 
     if (!response.success) {
-      throw new Error(response.error || 'Failed to check health');
+      throw new Error(response.error || "Failed to check health");
     }
 
     return response;
@@ -265,15 +270,18 @@ export class InitClient {
   /**
    * Build a container image for an app
    */
-  async buildImage(appId: string, appType: 'user' | 'system' = 'user'): Promise<{ imageName?: string; imageId?: string }> {
+  async buildImage(
+    appId: string,
+    appType: "user" | "system" = "user",
+  ): Promise<{ imageName?: string; imageId?: string }> {
     const response = await this.sendRequest<ImageBuildResponse>({
-      op: 'image:build',
+      op: "image:build",
       appId,
       appType,
-    } as Omit<ImageBuildRequest, 'id'>);
+    } as Omit<ImageBuildRequest, "id">);
 
     if (!response.success) {
-      throw new Error(response.error || 'Failed to build image');
+      throw new Error(response.error || "Failed to build image");
     }
 
     return { imageName: response.imageName, imageId: response.imageId };
@@ -284,12 +292,12 @@ export class InitClient {
    */
   async removeImage(appId: string): Promise<void> {
     const response = await this.sendRequest<InitResponse>({
-      op: 'image:remove',
+      op: "image:remove",
       appId,
-    } as Omit<ImageRemoveRequest, 'id'>);
+    } as Omit<ImageRemoveRequest, "id">);
 
     if (!response.success) {
-      throw new Error(response.error || 'Failed to remove image');
+      throw new Error(response.error || "Failed to remove image");
     }
   }
 

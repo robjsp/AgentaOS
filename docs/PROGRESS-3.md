@@ -21,9 +21,9 @@ const hasDataDir = existsSync(dataDir);
 
 // Add app data storage - either a real mount or tmpfs
 if (hasDataDir) {
-  args.push('-v', `${dataDir}:/app/data:rw`);
+  args.push("-v", `${dataDir}:/app/data:rw`);
 } else {
-  args.push('--tmpfs', '/app/data:rw,noexec,nosuid,size=256m');
+  args.push("--tmpfs", "/app/data:rw,noexec,nosuid,size=256m");
 }
 ```
 
@@ -32,6 +32,7 @@ if (hasDataDir) {
 ### 2. Created Sample Hello App
 
 Created `sample-apps/hello/` with:
+
 - `app.json` - App manifest
 - `server.js` - Simple HTTP server
 
@@ -39,14 +40,14 @@ Created `sample-apps/hello/` with:
 
 **Test results:**
 
-| Step | Command | Result |
-|------|---------|--------|
-| Install | `POST /api/apps` with zip | ✓ App created, status "stopped" |
-| Start | `POST /api/apps/hello/start` | ✓ Container started, status "running" |
-| Access | `GET /apps/hello/` | ✓ Returns `{"message":"Hello from AgentaOS app!"}` |
-| Path routing | `GET /apps/hello/some/path` | ✓ Path passed correctly to app |
-| Stop | `POST /api/apps/hello/stop` | ✓ Container stopped |
-| Access stopped | `GET /apps/hello/` | ✓ Returns friendly "not running" error |
+| Step           | Command                      | Result                                             |
+| -------------- | ---------------------------- | -------------------------------------------------- |
+| Install        | `POST /api/apps` with zip    | ✓ App created, status "stopped"                    |
+| Start          | `POST /api/apps/hello/start` | ✓ Container started, status "running"              |
+| Access         | `GET /apps/hello/`           | ✓ Returns `{"message":"Hello from AgentaOS app!"}` |
+| Path routing   | `GET /apps/hello/some/path`  | ✓ Path passed correctly to app                     |
+| Stop           | `POST /api/apps/hello/stop`  | ✓ Container stopped                                |
+| Access stopped | `GET /apps/hello/`           | ✓ Returns friendly "not running" error             |
 
 ---
 
@@ -57,7 +58,7 @@ Request flow (working):
 
 Browser → Gateway (Caddy) → API (Fastify) → App Container
                 :8080            :3000           :3000
-                
+
 Gateway proxies /apps/* to API
 API looks up app by route, proxies to container
 ```
@@ -66,11 +67,11 @@ API looks up app by route, proxies to container
 
 ## Files Changed This Session
 
-| File | Change |
-|------|--------|
-| `init/src/index.ts` | Fixed duplicate mount bug |
-| `sample-apps/hello/app.json` | **NEW** - Sample app manifest |
-| `sample-apps/hello/server.js` | **NEW** - Sample app server |
+| File                          | Change                        |
+| ----------------------------- | ----------------------------- |
+| `init/src/index.ts`           | Fixed duplicate mount bug     |
+| `sample-apps/hello/app.json`  | **NEW** - Sample app manifest |
+| `sample-apps/hello/server.js` | **NEW** - Sample app server   |
 
 ---
 

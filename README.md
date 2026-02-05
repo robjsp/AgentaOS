@@ -49,27 +49,30 @@ AgentaOS uses a **microkernel architecture** for security. The only code running
 
 ### Why Podman?
 
-| Feature | Benefit |
-|---------|---------|
-| **Rootless** | Containers run without root privileges. Even container escape = unprivileged user |
-| **Daemonless** | No background daemon. Containers are direct child processes |
-| **No socket** | No Docker socket to mount, eliminating a major attack vector |
-| **OCI-compatible** | Uses standard Docker images |
+| Feature            | Benefit                                                                           |
+| ------------------ | --------------------------------------------------------------------------------- |
+| **Rootless**       | Containers run without root privileges. Even container escape = unprivileged user |
+| **Daemonless**     | No background daemon. Containers are direct child processes                       |
+| **No socket**      | No Docker socket to mount, eliminating a major attack vector                      |
+| **OCI-compatible** | Uses standard Docker images                                                       |
 
 ### Security Model
 
 **Init (Microkernel)**
+
 - Runs on host with full access
 - Zero attack surface (no network, no input parsing)
 - Communicates via Unix socket only
 - Enforces container security policies
 
 **System Services (Gateway, API)**
+
 - Run in Podman containers
 - Trusted code, normal privileges
 - Web-facing but isolated from host
 
 **User Apps**
+
 - Fully sandboxed with strict restrictions:
   - `--cap-drop=ALL` (no Linux capabilities)
   - `--read-only` (read-only root filesystem)
@@ -100,6 +103,7 @@ npm run build
 ```
 
 **Access:**
+
 - **Web UI**: http://localhost:8888
 - **Direct ports**: `localhost:10000-10099` (for apps with port mappings)
 
@@ -226,9 +230,7 @@ For non-HTTP services (game servers, databases, SSH), apps can expose ports dire
     "image": "itzg/minecraft-server",
     "port": 25565
   },
-  "ports": [
-    { "container": 25565, "protocol": "tcp" }
-  ]
+  "ports": [{ "container": 25565, "protocol": "tcp" }]
 }
 ```
 
