@@ -54,7 +54,7 @@ Multiple Containers:
 
 | Stage | Description | Status |
 |-------|-------------|--------|
-| 1 | Database schema for instances | Pending |
+| 1 | Database schema for instances | ✅ Complete |
 | 2 | Init: Instance-aware container naming | Pending |
 | 3 | App Manager: Instance CRUD operations | Pending |
 | 4 | API routes for instances | Pending |
