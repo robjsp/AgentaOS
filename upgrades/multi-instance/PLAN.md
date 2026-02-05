@@ -50,12 +50,152 @@ Multiple Containers:
 
 ---
 
+## Prerequisites for Implementers
+
+Before starting implementation, ensure familiarity with the following files and concepts.
+
+### Key Files to Understand
+
+| File | Purpose | Must Read |
+|------|---------|-----------|
+| `core/src/lib/database.ts` | SQLite database setup, migrations, schema | Yes - for Stage 1 |
+| `core/src/services/app-manager/index.ts` | App lifecycle management (install, start, stop, delete) | Yes - for Stage 3, 6 |
+| `init/src/index.ts` | Privileged Init service that manages Podman containers | Yes - for Stage 2 |
+| `shared/protocol.ts` | TypeScript interfaces for Core↔Init communication | Yes - for Stage 2 |
+| `core/src/lib/init-client.ts` | Client library that Core uses to talk to Init via Unix socket | Helpful |
+| `core/src/server/routes/apps.ts` | REST API endpoints for apps | Yes - for Stage 4 |
+| `core/src/services/port-allocator/index.ts` | Dynamic port allocation for app containers | Yes - for Stage 5 |
+
+### Key Concepts to Understand
+
+#### 1. Core ↔ Init Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    agentaOS Host (Vagrant VM)               │
+│                                                             │
+│  ┌─────────────┐    Unix Socket    ┌─────────────────────┐  │
+│  │    Core     │◄──────────────────│        Init         │  │
+│  │  (Express)  │  /tmp/init.sock   │  (Privileged Node)  │  │
+│  │  Port 8080  │                   │                     │  │
+│  └─────────────┘                   └─────────────────────┘  │
+│        │                                    │               │
+│        │ REST API                           │ Podman        │
+│        ▼                                    ▼               │
+│   HTTP Clients                        Containers            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+- **Init** runs as root, manages Podman containers directly
+- **Core** is unprivileged, sends commands to Init via Unix socket
+- Communication protocol defined in `shared/protocol.ts`
+
+#### 2. Current Container Lifecycle
+
+```
+Install App (zip upload)
+    │
+    ├── Extract zip to /data/apps/{appId}/
+    ├── Build image: podman build → agentaos-app-{appId}:latest
+    └── Insert into SQLite `apps` table
+    
+Start App
+    │
+    ├── Allocate port from port pool
+    ├── Init creates container: agentaos-{appId}
+    └── Container runs on allocated port
+    
+Stop App
+    │
+    ├── Init stops container
+    └── Release port back to pool
+```
+
+#### 3. Database Schema (Current)
+
+```sql
+-- Main apps table
+apps (id, name, version, status, container_id, ...)
+
+-- Ports allocated to apps
+app_ports (id, app_id, host_port, container_port, protocol, enabled)
+
+-- Port allocation pool
+port_allocations (id, port, status, app_id, ...)
+```
+
+#### 4. Naming Conventions
+
+| Entity | Current Pattern | New Pattern (with instances) |
+|--------|-----------------|------------------------------|
+| Image | `agentaos-app-{appId}:latest` | (unchanged) |
+| Container | `agentaos-{appId}` | `agentaos-{appId}-{instanceNum}` |
+| Instance ID | N/A | `{appId}-{instanceNum}` |
+
+#### 5. Port Allocation Flow
+
+1. App requests ports (from `Dockerfile` EXPOSE or config)
+2. `PortAllocator` finds available ports in configured range
+3. Ports stored in `app_ports` table
+4. Passed to Init for container creation (`-p hostPort:containerPort`)
+
+### How to Test Changes
+
+The system runs in a Vagrant VM. Development workflow:
+
+```bash
+# Start the VM
+vagrant up
+
+# SSH into VM
+vagrant ssh
+
+# View Core logs
+journalctl -u agentaos-core -f
+
+# View Init logs  
+journalctl -u agentaos-init -f
+
+# Database inspection
+sqlite3 /data/system/agentaos.db ".tables"
+sqlite3 /data/system/agentaos.db "SELECT * FROM apps;"
+
+# Check running containers
+podman ps
+
+# Test API
+curl http://localhost:8080/api/apps
+```
+
+### Dependencies Between Components
+
+```
+Stage 1 (Database)
+    │
+    ▼
+Stage 2 (Init) ────────────────┐
+    │                          │
+    ▼                          ▼
+Stage 3 (App Manager) ◄─── Stage 5 (Port Allocator)
+    │
+    ▼
+Stage 4 (API Routes)
+    │
+    ▼
+Stage 6 (Integration)
+    │
+    ▼
+Stage 7 (Docs)
+```
+
+---
+
 ## Implementation Stages
 
 | Stage | Description | Status |
 |-------|-------------|--------|
 | 1 | Database schema for instances | ✅ Complete |
-| 2 | Init: Instance-aware container naming | Pending |
+| 2 | Init: Instance-aware container naming | ✅ Complete |
 | 3 | App Manager: Instance CRUD operations | Pending |
 | 4 | API routes for instances | Pending |
 | 5 | Port allocation per instance | Pending |
@@ -160,11 +300,32 @@ interface ContainerStartRequest {
 }
 ```
 
+### Stage 2 Implementation Summary
+
+**Files modified:**
+- `shared/protocol.ts`: Added `instanceId?: string` to all container request types, added `isValidInstanceId()` validator
+- `init/src/index.ts`: Updated all container functions to accept optional `instanceId`
+
+**Container naming:**
+- Without instanceId: `agentaos-{appId}` (backward compatible)
+- With instanceId: `agentaos-{appId}-{instanceNumber}` (e.g., `agentaos-hello-1`)
+
 ### Stage 2 Test
 
 ```bash
 # Manual test: Start container with instance ID
 # Via socket or test script
+
+# Test backward compatibility (no instanceId):
+echo '{"id":"test1","op":"container:start","appId":"hello","appType":"user"}' | nc -U /run/agentaos/init.sock
+# Creates container: agentaos-hello
+
+# Test with instanceId:
+echo '{"id":"test2","op":"container:start","appId":"hello","instanceId":"hello-1","appType":"user"}' | nc -U /run/agentaos/init.sock
+# Creates container: agentaos-hello-1
+
+# Test status with instanceId:
+echo '{"id":"test3","op":"container:status","appId":"hello","instanceId":"hello-1"}' | nc -U /run/agentaos/init.sock
 ```
 
 ---

@@ -25,6 +25,7 @@ import {
   InitResponse,
   ContainerStatus,
   isValidAppId,
+  isValidInstanceId,
   isValidOperation,
   isValidTailParam,
   INIT_SOCKET_PATH,
@@ -129,8 +130,15 @@ function execPodman(
 // CONTAINER MANAGEMENT
 // ============================================================
 
-function getContainerName(appId: string): string {
-  // SECURITY: appId already validated, safe to use
+function getContainerName(appId: string, instanceId?: string): string {
+  // SECURITY: appId and instanceId already validated, safe to use
+  if (instanceId) {
+    // Multi-instance: agentaos-{appId}-{instanceNumber}
+    // instanceId format is "{appId}-{number}", extract just the number
+    const instanceNumber = instanceId.split("-").pop();
+    return `${CONTAINER_NAME_PREFIX}-${appId}-${instanceNumber}`;
+  }
+  // Legacy single-instance: agentaos-{appId}
   return `${CONTAINER_NAME_PREFIX}-${appId}`;
 }
 
@@ -152,8 +160,11 @@ async function ensureNetwork(): Promise<boolean> {
   return true;
 }
 
-async function getContainerStatus(appId: string): Promise<ContainerStatus> {
-  const containerName = getContainerName(appId);
+async function getContainerStatus(
+  appId: string,
+  instanceId?: string,
+): Promise<ContainerStatus> {
+  const containerName = getContainerName(appId, instanceId);
   const { stdout, code } = await execPodman([
     "inspect",
     "--format",
@@ -182,12 +193,13 @@ interface PortMappingParam {
 async function startContainer(
   appId: string,
   appType: "user" | "system",
+  instanceId?: string,
   portMappings?: PortMappingParam[],
 ): Promise<InitResponse> {
-  const containerName = getContainerName(appId);
+  const containerName = getContainerName(appId, instanceId);
 
   // Check if already running
-  const currentStatus = await getContainerStatus(appId);
+  const currentStatus = await getContainerStatus(appId, instanceId);
   if (currentStatus === "running") {
     return { id: "", success: true, containerId: containerName };
   }
@@ -291,8 +303,11 @@ async function startContainer(
   return { id: "", success: true, containerId: result.stdout };
 }
 
-async function stopContainer(appId: string): Promise<InitResponse> {
-  const containerName = getContainerName(appId);
+async function stopContainer(
+  appId: string,
+  instanceId?: string,
+): Promise<InitResponse> {
+  const containerName = getContainerName(appId, instanceId);
 
   log("info", `Stopping container: ${containerName}`);
   const result = await execPodman(["stop", "-t", "10", containerName]);
@@ -309,9 +324,10 @@ async function stopContainer(appId: string): Promise<InitResponse> {
 
 async function getContainerLogs(
   appId: string,
+  instanceId?: string,
   tail: number = 100,
 ): Promise<InitResponse> {
-  const containerName = getContainerName(appId);
+  const containerName = getContainerName(appId, instanceId);
 
   const result = await execPodman([
     "logs",
@@ -475,6 +491,18 @@ async function handleRequest(request: InitRequest): Promise<InitResponse> {
     return { id, success: false, error: "Invalid app ID" };
   }
 
+  // Extract and validate instanceId if provided
+  const instanceId =
+    "instanceId" in request && typeof request.instanceId === "string"
+      ? request.instanceId
+      : undefined;
+
+  // SECURITY: Validate instanceId if provided
+  if (instanceId && !isValidInstanceId(instanceId)) {
+    log("warn", `Invalid instanceId rejected: ${instanceId}`);
+    return { id, success: false, error: "Invalid instance ID" };
+  }
+
   switch (op) {
     case "container:start": {
       const appType =
@@ -486,17 +514,17 @@ async function handleRequest(request: InitRequest): Promise<InitResponse> {
         "portMappings" in request && Array.isArray(request.portMappings)
           ? (request.portMappings as PortMappingParam[])
           : undefined;
-      const result = await startContainer(appId, appType, portMappings);
+      const result = await startContainer(appId, appType, instanceId, portMappings);
       return { ...result, id };
     }
 
     case "container:stop": {
-      const result = await stopContainer(appId);
+      const result = await stopContainer(appId, instanceId);
       return { ...result, id };
     }
 
     case "container:restart": {
-      await stopContainer(appId);
+      await stopContainer(appId, instanceId);
       const appType =
         "appType" in request && request.appType === "system"
           ? "system"
@@ -506,17 +534,17 @@ async function handleRequest(request: InitRequest): Promise<InitResponse> {
         "portMappings" in request && Array.isArray(request.portMappings)
           ? (request.portMappings as PortMappingParam[])
           : undefined;
-      const result = await startContainer(appId, appType, portMappings);
+      const result = await startContainer(appId, appType, instanceId, portMappings);
       return { ...result, id };
     }
 
     case "container:status": {
-      const status = await getContainerStatus(appId);
+      const status = await getContainerStatus(appId, instanceId);
       return {
         id,
         success: true,
         status,
-        containerId: getContainerName(appId),
+        containerId: getContainerName(appId, instanceId),
       };
     }
 
@@ -525,7 +553,7 @@ async function handleRequest(request: InitRequest): Promise<InitResponse> {
         "tail" in request && isValidTailParam(request.tail)
           ? request.tail
           : 100;
-      const result = await getContainerLogs(appId, tail);
+      const result = await getContainerLogs(appId, instanceId, tail);
       return { ...result, id };
     }
 

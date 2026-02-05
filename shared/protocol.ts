@@ -50,6 +50,7 @@ export interface InitRequestBase {
 export interface ContainerStartRequest extends InitRequestBase {
   op: 'container:start';
   appId: string;
+  instanceId?: string;  // Optional instance ID for multi-instance support
   appType: 'user' | 'system';
   portMappings?: PortMapping[];  // Optional port mappings
 }
@@ -57,21 +58,25 @@ export interface ContainerStartRequest extends InitRequestBase {
 export interface ContainerStopRequest extends InitRequestBase {
   op: 'container:stop';
   appId: string;
+  instanceId?: string;  // Optional instance ID for multi-instance support
 }
 
 export interface ContainerRestartRequest extends InitRequestBase {
   op: 'container:restart';
   appId: string;
+  instanceId?: string;  // Optional instance ID for multi-instance support
 }
 
 export interface ContainerStatusRequest extends InitRequestBase {
   op: 'container:status';
   appId: string;
+  instanceId?: string;  // Optional instance ID for multi-instance support
 }
 
 export interface ContainerLogsRequest extends InitRequestBase {
   op: 'container:logs';
   appId: string;
+  instanceId?: string;  // Optional instance ID for multi-instance support
   tail?: number;  // Only allowed param: number of lines
 }
 
@@ -181,6 +186,16 @@ export type InitResponse =
  */
 export function isValidAppId(id: string): boolean {
   return /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$|^[a-z0-9]$/.test(id);
+}
+
+/**
+ * Validate instance ID format
+ * Format: {appId}-{number} e.g., "hello-1", "myapp-42"
+ * Only lowercase alphanumeric, hyphens, and must end with a number
+ */
+export function isValidInstanceId(instanceId: string): boolean {
+  // Instance ID format: appId-number (e.g., hello-1, my-app-2)
+  return /^[a-z0-9][a-z0-9-]*-\d+$/.test(instanceId);
 }
 
 /**
